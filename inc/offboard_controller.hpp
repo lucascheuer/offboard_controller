@@ -20,10 +20,7 @@ public:
 	OffboardController();
 private:
 	rclcpp::Subscription<VehicleOdometry>::SharedPtr attitude_sub_;
-	rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr target_sub_;
 
-	// rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr quad_ground_truth_sub_;
-	// rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr ground_truth_sub_;
 
 
 	rclcpp::Subscription<VehicleCommandAck>::SharedPtr command_ack_sub_;
@@ -60,7 +57,6 @@ private:
     rclcpp::Time start_time_;
 
 	void ControlCallback(const VehicleOdometry::SharedPtr msg);
-	void TargetCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
 
 	void TransformToTree(const geometry_msgs::msg::TransformStamped transform);
 
