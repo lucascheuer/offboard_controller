@@ -21,33 +21,25 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	this->set_parameter(rclcpp::Parameter("use_sim_time", true));
 	rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
 	auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
-	attitude_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::ControlCallback, this, _1));
+	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::ControlCallback, this, _1));
 
-	offboard_control_mode_publisher_ = this->create_publisher<OffboardControlMode>("/px4_1/fmu/in/offboard_control_mode", 10);
-	trajectory_setpoint_publisher_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
-	vehicle_command_publisher_ = this->create_publisher<VehicleCommand>("/px4_1/fmu/in/vehicle_command", 10);
+	offboard_control_mode_pub_ = this->create_publisher<OffboardControlMode>("/px4_1/fmu/in/offboard_control_mode", 10);
+	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
+	vehicle_command_pub_ = this->create_publisher<VehicleCommand>("/px4_1/fmu/in/vehicle_command", 10);
 	tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
 	tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 	tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-	start_time_ = this->get_clock()->now();
 }
 	
 void OffboardController::ControlCallback(const VehicleOdometry::SharedPtr msg)
 {
-	// RCLCPP_INFO(this->get_logger(), "x: %f\ty: %f\tz: %f", msg->position[0], msg->position[1], msg->position[2]);
-	if (start_time_.seconds() > 10000000)
-	{
-		start_time_ = this->get_clock()->now();
-	}
 	double current_time = this->get_clock()->now().seconds();
 	// start_time_ = this->get_clock()->now();
 	// RCLCPP_INFO(this->get_logger(), "%fs", (current_time - last_time_) * 1e-9);
-	last_time_ = current_time;
-	if (current_time - last_publish_time_ > 0.5)
+	if (current_time - last_command_publish_time_ > 0.5)
 	{
-		// RCLCPP_INFO(this->get_logger(), "Setting Mode");
-		last_publish_time_ = current_time;
+		last_command_publish_time_ = current_time;
 		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
 		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
 	}
@@ -116,7 +108,7 @@ void OffboardController::PublishVehicleCommand(uint16_t command, float param1, f
 	msg.source_component = 1;
 	msg.from_external = true;
 	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-	vehicle_command_publisher_->publish(msg);
+	vehicle_command_pub_->publish(msg);
 }
 
 void OffboardController::PublishOffboardControlMode()
@@ -128,7 +120,7 @@ void OffboardController::PublishOffboardControlMode()
 	msg.attitude = false;
 	msg.body_rate = false;
 	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-	offboard_control_mode_publisher_->publish(msg);
+	offboard_control_mode_pub_->publish(msg);
 }
 
 void OffboardController::PublishTrajectorySetpoint()
@@ -204,7 +196,7 @@ void OffboardController::PublishTrajectorySetpoint()
 	msg.acceleration = {0.0, 0.0, 0.0};
 	msg.yaw = time_now * 0.1;
 	msg.timestamp = time_now * 1000000;
-	trajectory_setpoint_publisher_->publish(msg);
+	trajectory_setpoint_pub_->publish(msg);
 }
 
 int main(int argc, char *argv[])
