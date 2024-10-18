@@ -21,6 +21,12 @@ public:
 	OffboardController();
 private:
 
+	enum class ControllerState
+	{
+		kSearching,
+		kTracking
+	};
+
 	// callbacks on these
 	rclcpp::Subscription<VehicleOdometry>::SharedPtr odom_sub_;
 	rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
@@ -41,13 +47,21 @@ private:
 
     uint64_t last_command_publish_time_ = 0;
 	
-    rclcpp::Time start_time_;
+	ControllerState control_state_;
 
-	void ControlCallback(const VehicleOdometry::SharedPtr msg);
+	geometry_msgs::msg::TransformStamped target_;
+
+	void OdomCallback(const VehicleOdometry::SharedPtr msg);
+	void AttitudeCallback(const VehicleAttitude::SharedPtr msg);
 
 	void TransformToTree(const geometry_msgs::msg::TransformStamped transform);
 
 	void PublishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0);
 	void PublishOffboardControlMode();
 	void PublishTrajectorySetpoint();
+
+	void TargetCheck();
+	void PublishModeCommands();
+	void PublishStaticTransforms();
+	
 };
