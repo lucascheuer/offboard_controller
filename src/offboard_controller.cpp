@@ -67,9 +67,6 @@ void OffboardController::ControlCallback(const VehicleOdometry::SharedPtr msg)
 	t.transform.translation.x = t_ros(0);
 	t.transform.translation.y = t_ros(1);
 	t.transform.translation.z = t_ros(2);
-	vehicle_x = t_ros(0);
-	vehicle_y = t_ros(1);
-	vehicle_z = t_ros(2);
 	
 	Eigen::Quaterniond q_px4(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
 	Eigen::Quaterniond q_ros = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
@@ -141,6 +138,9 @@ void OffboardController::PublishTrajectorySetpoint()
 	double x_vel = 0;
 	double y_vel = 0;
 	double z_vel = 0;
+	double target_x = 0;
+	double target_y = 0;
+	double target_z = 0;
 	std::string fromFrameRel = "tag_0";
 	std::string toFrameRel = "no-yaw-x500-Depth";
 	geometry_msgs::msg::TransformStamped t;
@@ -164,7 +164,7 @@ void OffboardController::PublishTrajectorySetpoint()
 	
 	double p_gain = 0.5;
 	double max_speed = 0.5;
-	Eigen::Vector3d position_error(target_x, target_y, 6 - vehicle_z);
+	Eigen::Vector3d position_error(target_x, target_y, target_z + 6);
 	x_vel = position_error(0) * p_gain;
 	y_vel = position_error(1) * p_gain;
 	z_vel = position_error(2) * p_gain;

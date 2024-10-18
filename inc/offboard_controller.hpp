@@ -39,21 +39,6 @@ private:
     uint64_t last_publish_time_ = 0;
     uint64_t last_time_ = 0;
 	
-	double vehicle_x = 0;
-	double vehicle_y = 0;
-	double vehicle_z = 0;
-	double vehicle_x_d = 0;
-	double vehicle_y_d = 0;
-	double vehicle_z_d = 0;
-	double vehicle_yaw = 0;
-
-	double target_x = 0;
-	double target_y = 0;
-	double target_z = 0;
-	double target_x_d = 0;
-	double target_y_d = 0;
-	double target_z_d = 0;
-	double target_yaw = 0;
     rclcpp::Time start_time_;
 
 	void ControlCallback(const VehicleOdometry::SharedPtr msg);
