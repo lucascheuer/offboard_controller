@@ -13,6 +13,8 @@
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 
+#include "controller.hpp"
+
 using namespace px4_msgs::msg;
 
 class OffboardController : public rclcpp::Node
@@ -48,6 +50,7 @@ private:
     uint64_t last_command_publish_time_ = 0;
 	
 	ControllerState control_state_;
+	Controller controller_;
 
 	geometry_msgs::msg::TransformStamped target_;
 
@@ -59,6 +62,8 @@ private:
 	void PublishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0);
 	void PublishOffboardControlMode();
 	void PublishTrajectorySetpoint();
+	void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
+
 
 	void TargetCheck();
 	void PublishModeCommands();

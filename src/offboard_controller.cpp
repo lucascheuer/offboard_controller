@@ -31,9 +31,10 @@ OffboardController::OffboardController() : Node("offboard_controller")
 
 	// pubs
 	offboard_control_mode_pub_ = this->create_publisher<OffboardControlMode>("/px4_1/fmu/in/offboard_control_mode", 10);
-	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
 	vehicle_command_pub_ = this->create_publisher<VehicleCommand>("/px4_1/fmu/in/vehicle_command", 10);
-	
+	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
+	attitude_setpoint_pub_ = this->create_publisher<VehicleAttitudeSetpoint>("/px4_1/fmu/in/vehicel_attitude_setpoint", 10);
+
 	// tf stuff
 	tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
 	tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -67,6 +68,31 @@ void OffboardController::AttitudeCallback(const VehicleAttitude::SharedPtr msg)
 	if (control_state_ == ControllerState::kTracking)
 	{
 		PublishModeCommands();
+		PublishTrajectorySetpoint();
+		controller_.set_current_transform(t.transform);
+		t = target_;
+		t.transform.translation.z = t.transform.translation.z + 6;
+		controller_.set_target_transform(t.transform);
+
+		Eigen::Quaterniond target_orientation;
+		Eigen::Vector3d target_thrust;
+
+		controller_.Update(target_orientation, target_thrust);
+
+		target_orientation = px4_ros_com::frame_transforms::ros_to_px4_orientation(target_orientation);
+		target_thrust = px4_ros_com::frame_transforms::ned_to_enu_local_frame(target_thrust);
+		PublishAttitudeSetpoint(target_orientation, target_thrust);
+		t.child_frame_id = "target-orientation";
+		t.transform.translation.x = 0;
+		t.transform.translation.y = 0;
+		t.transform.translation.z = 0;
+		t.transform.rotation.w = target_orientation.w();
+		t.transform.rotation.x = target_orientation.x();
+		t.transform.rotation.y = target_orientation.y();
+		t.transform.rotation.z = target_orientation.z();
+
+		tf_broadcaster_->sendTransform(t);
+		RCLCPP_INFO(this->get_logger(), "thrust: %f", target_thrust(2));
 	}
 }
 
@@ -151,6 +177,20 @@ void OffboardController::PublishTrajectorySetpoint()
 	msg.yaw = 0.0;
 	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
 	trajectory_setpoint_pub_->publish(msg);
+}
+
+void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4)
+{
+	VehicleAttitudeSetpoint setpoint;
+	setpoint.q_d[0] = target_quaternion_px4.w();
+	setpoint.q_d[1] = target_quaternion_px4.x();
+	setpoint.q_d[2] = target_quaternion_px4.y();
+	setpoint.q_d[3] = target_quaternion_px4.z();
+	setpoint.thrust_body[0] = target_thrust_px4(0);
+	setpoint.thrust_body[1] = target_thrust_px4(1);
+	setpoint.thrust_body[2] = target_thrust_px4(2);
+	setpoint.timestamp = this->get_clock()->now().seconds() * 1000000;
+	attitude_setpoint_pub_->publish(setpoint);
 }
 
 // void OffboardController::PublishTrajectorySetpoint()
@@ -239,9 +279,9 @@ void OffboardController::TargetCheck()
 				toFrameRel, fromFrameRel,
 				tf2::TimePointZero
 			);
-		// control_state_ = ControllerState::kTracking;
+		control_state_ = ControllerState::kTracking;
 	} catch (const tf2::TransformException & ex) {
-		// control_state_ = ControllerState::kSearching;
+		control_state_ = ControllerState::kSearching;
 	}
 }
 

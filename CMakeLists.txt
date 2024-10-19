@@ -31,8 +31,6 @@ include_directories(inc)
 
 add_executable(offboard_controller
 src/offboard_controller.cpp
-src/sphere_generator.cpp
-src/sphere_trajectories.cpp
 src/controller.cpp
 )
 ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs tf2 tf2_ros nav_msgs trajectory_msgs)
