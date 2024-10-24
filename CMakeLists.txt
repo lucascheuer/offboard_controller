@@ -19,6 +19,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(apriltag_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -33,7 +34,7 @@ add_executable(offboard_controller
 src/offboard_controller.cpp
 src/controller.cpp
 )
-ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs tf2 tf2_ros nav_msgs trajectory_msgs)
+ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs apriltag_msgs tf2 tf2_ros nav_msgs trajectory_msgs)
 install(TARGETS offboard_controller DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY cfg DESTINATION share/${PROJECT_NAME}/)

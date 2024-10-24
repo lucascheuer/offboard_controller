@@ -13,6 +13,9 @@
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 
+#include <apriltag_msgs/msg/april_tag_detection_array.hpp>
+#include <Eigen/Eigen>
+
 #include "controller.hpp"
 
 using namespace px4_msgs::msg;
@@ -31,12 +34,14 @@ private:
 
 	// callbacks on these
 	rclcpp::Subscription<VehicleOdometry>::SharedPtr odom_sub_;
+	rclcpp::Subscription<apriltag_msgs::msg::AprilTagDetectionArray>::SharedPtr april_tag_sub_;
 	rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
 
 	// things to do general control of px4
 	rclcpp::Subscription<VehicleCommandAck>::SharedPtr command_ack_sub_;
 	rclcpp::Publisher<OffboardControlMode>::SharedPtr offboard_control_mode_pub_;
 	rclcpp::Publisher<VehicleCommand>::SharedPtr vehicle_command_pub_;
+	rclcpp::Publisher<VehicleOdometry>::SharedPtr visual_odometry_pub_;
 
 	// Control types for px4
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
@@ -47,7 +52,7 @@ private:
 	std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
 	std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
-    uint64_t last_command_publish_time_ = 0;
+    double last_command_publish_time_ = 0;
 	
 	ControllerState control_state_;
 	Controller controller_;
@@ -56,6 +61,7 @@ private:
 
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
 	void AttitudeCallback(const VehicleAttitude::SharedPtr msg);
+	void TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg);
 
 	void TransformToTree(const geometry_msgs::msg::TransformStamped transform);
 
@@ -63,6 +69,7 @@ private:
 	void PublishOffboardControlMode();
 	void PublishTrajectorySetpoint();
 	void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
+	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 
 
 	void TargetCheck();

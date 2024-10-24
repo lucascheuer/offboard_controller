@@ -3,7 +3,6 @@
 
 #include <chrono>
 #include <iostream>
-#include <Eigen/Eigen>
 #include <px4_ros_com/frame_transforms.h>
 
 #include "offboard_controller.hpp"
@@ -26,14 +25,15 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	control_state_ = ControllerState::kSearching;
 	
 	// subs
-	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
-	attitude_sub_ = this->create_subscription<VehicleAttitude>("/px4_1/fmu/out/vehicle_attitude", qos, std::bind(&OffboardController::AttitudeCallback, this, _1));
-
+	// odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
+	// attitude_sub_ = this->create_subscription<VehicleAttitude>("/px4_1/fmu/out/vehicle_attitude", qos, std::bind(&OffboardController::AttitudeCallback, this, _1));
+	april_tag_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>("/apriltag/detections", qos, std::bind(&OffboardController::TagCallback, this, _1));
 	// pubs
 	offboard_control_mode_pub_ = this->create_publisher<OffboardControlMode>("/px4_1/fmu/in/offboard_control_mode", 10);
 	vehicle_command_pub_ = this->create_publisher<VehicleCommand>("/px4_1/fmu/in/vehicle_command", 10);
 	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
-	attitude_setpoint_pub_ = this->create_publisher<VehicleAttitudeSetpoint>("/px4_1/fmu/in/vehicel_attitude_setpoint", 10);
+	visual_odometry_pub_ = this->create_publisher<VehicleOdometry>("/px4_1/fmu/in/vehicle_visual_odometry", 10);
+	attitude_setpoint_pub_ = this->create_publisher<VehicleAttitudeSetpoint>("/px4_1/fmu/in/vehicle_attitude_setpoint", 10);
 
 	// tf stuff
 	tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -58,30 +58,26 @@ void OffboardController::AttitudeCallback(const VehicleAttitude::SharedPtr msg)
 	Eigen::Quaterniond q_px4(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
 	Eigen::Quaterniond q_ros = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
 
-	t.transform.rotation.w = q_ros.w();
-	t.transform.rotation.x = q_ros.x();
-	t.transform.rotation.y = q_ros.y();
-	t.transform.rotation.z = q_ros.z();
+	t.transform.rotation.w = 1.0;//q_ros.w();
+	t.transform.rotation.x = 0;//q_ros.x();
+	t.transform.rotation.y = 0;//q_ros.y();
+	t.transform.rotation.z = 0;//q_ros.z();
 
 	tf_broadcaster_->sendTransform(t);
 
 	if (control_state_ == ControllerState::kTracking)
 	{
 		PublishModeCommands();
-		PublishTrajectorySetpoint();
 		controller_.set_current_transform(t.transform);
 		t = target_;
-		t.transform.translation.z = t.transform.translation.z + 6;
+		t.transform.translation.z = t.transform.translation.z +5;
 		controller_.set_target_transform(t.transform);
 
 		Eigen::Quaterniond target_orientation;
 		Eigen::Vector3d target_thrust;
 
 		controller_.Update(target_orientation, target_thrust);
-
-		target_orientation = px4_ros_com::frame_transforms::ros_to_px4_orientation(target_orientation);
-		target_thrust = px4_ros_com::frame_transforms::ned_to_enu_local_frame(target_thrust);
-		PublishAttitudeSetpoint(target_orientation, target_thrust);
+		
 		t.child_frame_id = "target-orientation";
 		t.transform.translation.x = 0;
 		t.transform.translation.y = 0;
@@ -92,16 +88,66 @@ void OffboardController::AttitudeCallback(const VehicleAttitude::SharedPtr msg)
 		t.transform.rotation.z = target_orientation.z();
 
 		tf_broadcaster_->sendTransform(t);
-		RCLCPP_INFO(this->get_logger(), "thrust: %f", target_thrust(2));
+		// RCLCPP_INFO(this->get_logger(), "thrust: %f", target_thrust(2));
+
+		target_orientation = px4_ros_com::frame_transforms::ros_to_px4_orientation(target_orientation);
+		target_thrust = px4_ros_com::frame_transforms::enu_to_ned_local_frame(target_thrust);
+		PublishAttitudeSetpoint(target_orientation, target_thrust);
+		// PublishTrajectorySetpoint();
+		
 	}
 }
 
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
-	if (control_state_ == ControllerState::kSearching)
-	{
+	// if (control_state_ == ControllerState::kSearching)
+	// {
 		PublishModeCommands();
 		PublishTrajectorySetpoint();
+	// }
+}
+
+void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg)
+{
+	if (msg->detections.size() > 0)
+	{
+		TargetCheck();
+		Eigen::Vector3d t_ros(
+			target_.transform.translation.x,
+			target_.transform.translation.y,
+			target_.transform.translation.z
+		);
+		Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::enu_to_ned_local_frame(t_ros);
+		Eigen::Quaterniond q_ros(
+			target_.transform.rotation.w,
+			target_.transform.rotation.x,
+			target_.transform.rotation.y,
+			target_.transform.rotation.z
+		);
+		Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::ros_to_px4_orientation(q_ros);
+		VehicleOdometry odom{};
+		odom.timestamp = this->get_clock()->now().seconds() * 1000000;
+		odom.timestamp_sample = target_.header.stamp.sec * 1000000;
+		odom.pose_frame = odom.POSE_FRAME_NED;
+		odom.position = {
+			float(t_px4.x()),
+			float(t_px4.y()),
+			float(t_px4.z())
+		};
+		odom.q = {
+			float(q_px4.w()),
+			float(q_px4.x()),
+			float(q_px4.y()),
+			float(q_px4.z())
+		};
+		odom.velocity_frame = odom.VELOCITY_FRAME_UNKNOWN;
+		odom.velocity = {NAN, NAN, NAN};
+		odom.angular_velocity = {NAN, NAN, NAN};
+		odom.position_variance = {NAN, NAN, NAN};
+		odom.orientation_variance = {NAN, NAN, NAN};
+		odom.velocity_variance = {NAN, NAN, NAN};
+		visual_odometry_pub_->publish(odom);
+		
 	}
 }
 // void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
@@ -174,7 +220,7 @@ void OffboardController::PublishTrajectorySetpoint()
 	msg.position = {0, 0, -6};
 	msg.velocity = {0.0, 0.0, 0.0};
 	msg.acceleration = {0.0, 0.0, 0.0};
-	msg.yaw = 0.0;
+	msg.yaw = this->get_clock()->now().seconds() *0.1;
 	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
 	trajectory_setpoint_pub_->publish(msg);
 }
@@ -182,13 +228,22 @@ void OffboardController::PublishTrajectorySetpoint()
 void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4)
 {
 	VehicleAttitudeSetpoint setpoint;
-	setpoint.q_d[0] = target_quaternion_px4.w();
-	setpoint.q_d[1] = target_quaternion_px4.x();
-	setpoint.q_d[2] = target_quaternion_px4.y();
-	setpoint.q_d[3] = target_quaternion_px4.z();
-	setpoint.thrust_body[0] = target_thrust_px4(0);
-	setpoint.thrust_body[1] = target_thrust_px4(1);
-	setpoint.thrust_body[2] = target_thrust_px4(2);
+	setpoint.q_d = {float(target_quaternion_px4.w()), float(target_quaternion_px4.x()), float(target_quaternion_px4.y()), float(target_quaternion_px4.z())};
+	// setpoint.q_d[1] = 0;//target_quaternion_px4.x();
+	// setpoint.q_d[2] = 0;//target_quaternion_px4.y();
+	// setpoint.q_d[3] = 0;//target_quaternion_px4.z();
+	// setpoint.roll_body = 0.0;//target_rpy(0);
+	// setpoint.pitch_body = 0;//target_rpy(1);
+	// setpoint.yaw_body = 0;//target_rpy(2);
+	RCLCPP_INFO(this->get_logger(), "thrust_z: %f", target_thrust_px4(2));
+	setpoint.thrust_body = {float(target_thrust_px4(0)), float(target_thrust_px4(1)), float(target_thrust_px4(2))};
+
+	// setpoint.thrust_body[0] = target_thrust_px4(0);
+	// setpoint.thrust_body[1] = target_thrust_px4(1);
+	// setpoint.thrust_body[2] = target_thrust_px4(2);
+	setpoint.yaw_sp_move_rate = 0;
+	setpoint.reset_integral = false;
+	setpoint.fw_control_yaw_wheel = false;
 	setpoint.timestamp = this->get_clock()->now().seconds() * 1000000;
 	attitude_setpoint_pub_->publish(setpoint);
 }
@@ -337,6 +392,7 @@ void OffboardController::PublishOffboardControlMode()
 	{
 		msg.position = true;
 		msg.attitude = false;
+
 	} else
 	{
 		msg.position = false;
@@ -345,6 +401,7 @@ void OffboardController::PublishOffboardControlMode()
 	msg.velocity = false;
 	msg.acceleration = false;
 	msg.body_rate = false;
+	msg.actuator = false;
 	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
 	offboard_control_mode_pub_->publish(msg);
 }
