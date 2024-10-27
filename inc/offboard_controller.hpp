@@ -53,11 +53,13 @@ private:
 	std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
     double last_command_publish_time_ = 0;
+	int consecutive_detections_ = 0;
 	
 	ControllerState control_state_;
 	Controller controller_;
 
 	geometry_msgs::msg::TransformStamped target_;
+	Eigen::Quaterniond vehicle_orientation_;
 
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
 	void AttitudeCallback(const VehicleAttitude::SharedPtr msg);
@@ -72,8 +74,9 @@ private:
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 
 
-	void TargetCheck();
+	bool TargetCheck();
 	void PublishModeCommands();
 	void PublishStaticTransforms();
+	void PublishVehicleTransforms(Eigen::Quaterniond &vehicle_orientation);
 	
 };

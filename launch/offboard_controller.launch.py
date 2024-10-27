@@ -18,9 +18,9 @@ def generate_launch_description():
     rviz = Node(
         package='rviz2',
         executable='rviz2',
-        # arguments=[
-        #     '-d', os.path.join(pkg_ros_gz_sim_demos, 'rviz', 'rgbd_camera_bridge.rviz')
-        # ],
+        arguments=[
+            '-d', '/home/luca/.rviz2/px4_offboard.rviz'
+        ]
         # condition=IfCondition(LaunchConfiguration('rviz'))
     )
 

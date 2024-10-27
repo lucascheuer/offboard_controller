@@ -25,7 +25,7 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	control_state_ = ControllerState::kSearching;
 	
 	// subs
-	// odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
+	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
 	// attitude_sub_ = this->create_subscription<VehicleAttitude>("/px4_1/fmu/out/vehicle_attitude", qos, std::bind(&OffboardController::AttitudeCallback, this, _1));
 	april_tag_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>("/apriltag/detections", qos, std::bind(&OffboardController::TagCallback, this, _1));
 	// pubs
@@ -100,7 +100,10 @@ void OffboardController::AttitudeCallback(const VehicleAttitude::SharedPtr msg)
 
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
-	// if (control_state_ == ControllerState::kSearching)
+	Eigen::Quaterniond vehicle_orientation(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
+	vehicle_orientation_ = vehicle_orientation;
+	PublishVehicleTransforms(vehicle_orientation);
+	// if (control_state_ == ControllerState::kTracking)
 	// {
 		PublishModeCommands();
 		PublishTrajectorySetpoint();
@@ -111,113 +114,76 @@ void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetection
 {
 	if (msg->detections.size() > 0)
 	{
-		TargetCheck();
-		Eigen::Vector3d t_ros(
-			target_.transform.translation.x,
-			target_.transform.translation.y,
-			target_.transform.translation.z
-		);
-		Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::enu_to_ned_local_frame(t_ros);
-		Eigen::Quaterniond q_ros(
-			target_.transform.rotation.w,
-			target_.transform.rotation.x,
-			target_.transform.rotation.y,
-			target_.transform.rotation.z
-		);
-		Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::ros_to_px4_orientation(q_ros);
-		VehicleOdometry odom{};
-		odom.timestamp = this->get_clock()->now().seconds() * 1000000;
-		odom.timestamp_sample = target_.header.stamp.sec * 1000000;
-		odom.pose_frame = odom.POSE_FRAME_NED;
-		odom.position = {
-			float(t_px4.x()),
-			float(t_px4.y()),
-			float(t_px4.z())
-		};
-		odom.q = {
-			float(q_px4.w()),
-			float(q_px4.x()),
-			float(q_px4.y()),
-			float(q_px4.z())
-		};
-		odom.velocity_frame = odom.VELOCITY_FRAME_UNKNOWN;
-		odom.velocity = {NAN, NAN, NAN};
-		odom.angular_velocity = {NAN, NAN, NAN};
-		odom.position_variance = {NAN, NAN, NAN};
-		odom.orientation_variance = {NAN, NAN, NAN};
-		odom.velocity_variance = {NAN, NAN, NAN};
-		visual_odometry_pub_->publish(odom);
+		PublishStaticTransforms();
+		if (TargetCheck())
+		{	
+			if (consecutive_detections_ < 10 )
+			{
+				consecutive_detections_++;
+			} else
+			{
+				control_state_ = ControllerState::kTracking;
+			}
+		
+			Eigen::Vector3d t_ros(
+				target_.transform.translation.x,
+				target_.transform.translation.y,
+				target_.transform.translation.z
+			);
+			Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::enu_to_ned_local_frame(t_ros);
+			
+			Eigen::Quaterniond q_ros(
+				target_.transform.rotation.w,
+				target_.transform.rotation.x,
+				target_.transform.rotation.y,
+				target_.transform.rotation.z
+			);
+			Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::ros_to_px4_orientation(q_ros);
+			VehicleOdometry odom{};
+			odom.timestamp = this->get_clock()->now().seconds() * 1000000;
+			odom.timestamp_sample = target_.header.stamp.sec * 1000000;
+			odom.pose_frame = odom.POSE_FRAME_FRD;
+			odom.position = {
+				float(t_px4.x()),
+				float(t_px4.y()),
+				float(t_px4.z())
+			};
+			odom.q = {
+				float(q_px4.w()),
+				float(q_px4.x()),
+				float(q_px4.y()),
+				float(q_px4.z())
+			};
+			odom.velocity_frame = odom.VELOCITY_FRAME_UNKNOWN;
+			odom.velocity = {NAN, NAN, NAN};
+			odom.angular_velocity = {NAN, NAN, NAN};
+			odom.position_variance = {NAN, NAN, NAN};
+			odom.orientation_variance = {NAN, NAN, NAN};
+			odom.velocity_variance = {NAN, NAN, NAN};
+			visual_odometry_pub_->publish(odom);
+			auto tag_euler = q_ros.toRotationMatrix().eulerAngles(0, 1, 2);
+			auto aircraft_euler = vehicle_orientation_.toRotationMatrix().eulerAngles(0, 1, 2);
+			RCLCPP_INFO(this->get_logger(), "tag x: %5.2f, y: %5.2f, z: %5.2f", tag_euler(0), tag_euler(1), tag_euler(2));
+			RCLCPP_INFO(this->get_logger(), "air x: %5.2f, y: %5.2f, z: %5.2f", aircraft_euler(0), aircraft_euler(1), aircraft_euler(2));
+		} else
+		{
+			if (consecutive_detections_ > 0)
+			{
+				consecutive_detections_--;
+			}
+			if (consecutive_detections_ == 0)
+			{
+				control_state_ = ControllerState::kSearching;
+			}
+		}
 		
 	}
 }
-// void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
-// {
-// 	double current_time = this->get_clock()->now().seconds();
-// 	// start_time_ = this->get_clock()->now();
-// 	// RCLCPP_INFO(this->get_logger(), "%fs", (current_time - last_time_) * 1e-9);
-// 	if (current_time - last_command_publish_time_ > 0.5)
-// 	{
-// 		last_command_publish_time_ = current_time;
-// 		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
-// 		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
-// 	}
-// 	PublishOffboardControlMode();
-// 	PublishTrajectorySetpoint();
-// 	geometry_msgs::msg::TransformStamped t;
-
-// 	// Read message content and assign it to
-// 	// corresponding tf variables
-	
-// 	t.header.stamp = this->now();
-// 	t.header.frame_id = "map";
-// 	t.child_frame_id = "x500-Depth";
-
-// 	Eigen::Vector3d t_px4(msg->position[0], msg->position[1], msg->position[2]);
-// 	Eigen::Vector3d t_ros = px4_ros_com::frame_transforms::ned_to_enu_local_frame(t_px4);
-// 	t.transform.translation.x = t_ros(0);
-// 	t.transform.translation.y = t_ros(1);
-// 	t.transform.translation.z = t_ros(2);
-	
-// 	Eigen::Quaterniond q_px4(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
-// 	Eigen::Quaterniond q_ros = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
-
-// 	t.transform.rotation.w = q_ros.w();
-// 	t.transform.rotation.x = q_ros.x();
-// 	t.transform.rotation.y = q_ros.y();
-// 	t.transform.rotation.z = q_ros.z();
-
-
-// 	tf_broadcaster_->sendTransform(t);
-// 	t.header.stamp = this->now();
-// 	t.transform.rotation.w = 1.0;
-// 	t.transform.rotation.x = 0.0;
-// 	t.transform.rotation.y = 0.0;
-// 	t.transform.rotation.z = 0.0;
-// 	t.child_frame_id = "no-yaw-x500-Depth";
-// 	tf_broadcaster_->sendTransform(t);
-// 	// camera broadcast
-// 	// <pose> 0 0 .242 0 1.5707 0</pose>
-// 	// [ 0, 1, 0, 0.0000013 ]
-// 	t.header.stamp = this->get_clock()->now();
-// 	t.header.frame_id = "x500-Depth";
-// 	t.child_frame_id = "camera";
-// 	t.transform.translation.x = 0;
-// 	t.transform.translation.y = 0;
-// 	t.transform.translation.z = -1;
-
-// 	t.transform.rotation.w = 0.0;
-// 	t.transform.rotation.x = -0.707106;
-// 	t.transform.rotation.y = 0.707106;
-// 	t.transform.rotation.z = 0.0;
-
-// 	tf_broadcaster_->sendTransform(t);
-
-// }
 
 void OffboardController::PublishTrajectorySetpoint()
 {
 	TrajectorySetpoint msg{};
-	msg.position = {0, 0, -6};
+	msg.position = {0, 0, -3};
 	msg.velocity = {0.0, 0.0, 0.0};
 	msg.acceleration = {0.0, 0.0, 0.0};
 	msg.yaw = this->get_clock()->now().seconds() *0.1;
@@ -248,95 +214,20 @@ void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quat
 	attitude_setpoint_pub_->publish(setpoint);
 }
 
-// void OffboardController::PublishTrajectorySetpoint()
-// {
-// 	TrajectorySetpoint msg{};
-// 	double time_now = this->get_clock()->now().seconds();
-// 	double x_vel = 0;
-// 	double y_vel = 0;
-// 	double z_vel = 0;
-// 	double target_x = 0;
-// 	double target_y = 0;
-// 	double target_z = 0;
-// 	std::string fromFrameRel = "tag_0";
-// 	std::string toFrameRel = "no-yaw-x500-Depth";
-// 	geometry_msgs::msg::TransformStamped t;
-// 	try {
-// 		t = tf_buffer_->lookupTransform(
-// 				toFrameRel, fromFrameRel,
-// 				tf2::TimePointZero
-// 			);
-// 		target_x = t.transform.translation.x;
-// 		target_y = t.transform.translation.y;
-// 		target_z = t.transform.translation.z;
-// 		// RCLCPP_INFO(this->get_logger(), "tx: %5.2f\tty: %5.2f\ttz: %5.2f", t.transform.translation.x, t.transform.translation.y, t.transform.translation.z);
-// 	} catch (const tf2::TransformException & ex) {
-// 		RCLCPP_INFO(
-// 		this->get_logger(), "Could not transform %s to %s: %s",
-// 		toFrameRel.c_str(), fromFrameRel.c_str(), ex.what());
-// 		target_x = 0;
-// 		target_y = 0;
-// 		target_z = 0;
-// 	}
-	
-// 	double p_gain = 0.5;
-// 	double max_speed = 0.5;
-// 	Eigen::Vector3d position_error(target_x, target_y, target_z + 6);
-// 	x_vel = position_error(0) * p_gain;
-// 	y_vel = position_error(1) * p_gain;
-// 	z_vel = position_error(2) * p_gain;
-// 	if (x_vel > max_speed)
-// 	{
-// 		x_vel = max_speed;
-// 	}else if (x_vel < -max_speed)
-// 	{
-// 		x_vel = -max_speed;
-// 	}
-
-// 	if (y_vel > max_speed)
-// 	{
-// 		y_vel = max_speed;
-// 	}else if (y_vel < -max_speed)
-// 	{
-// 		y_vel = -max_speed;
-// 	}
-
-// 	if (z_vel > max_speed)
-// 	{
-// 		z_vel = max_speed;
-// 	}else if (z_vel < -max_speed)
-// 	{
-// 		z_vel = -max_speed;
-// 	}
-// 	RCLCPP_INFO(this->get_logger(),"x_e: %3.2f\ty_e: %3.2f\tz_e: %3.2f", target_x, target_y, target_z);
-// 	Eigen::Vector3d t_d_ros(x_vel, y_vel, z_vel);
-
-// 	Eigen::Vector3d t_d_px4 = px4_ros_com::frame_transforms::enu_to_ned_local_frame(t_d_ros);
-// 	x_vel = t_d_px4(0);
-// 	y_vel = t_d_px4(1);
-// 	z_vel = t_d_px4(2);
-	
-// 	msg.position = {NAN, NAN, NAN};
-// 	msg.velocity = {float(x_vel), float(y_vel), float(z_vel)};
-// 	msg.acceleration = {0.0, 0.0, 0.0};
-// 	msg.yaw = time_now * 0.1;
-// 	msg.timestamp = time_now * 1000000;
-// 	trajectory_setpoint_pub_->publish(msg);
-// }
-
-void OffboardController::TargetCheck()
+bool OffboardController::TargetCheck()
 {
-	std::string fromFrameRel = "tag_0";
-	std::string toFrameRel = "x500-Depth";
+	std::string target_frame = "map";
+	std::string source_frame = "tag_0";
 	control_state_ = ControllerState::kSearching;
 	try {
 		target_ = tf_buffer_->lookupTransform(
-				toFrameRel, fromFrameRel,
+				target_frame, source_frame,
 				tf2::TimePointZero
 			);
-		control_state_ = ControllerState::kTracking;
+		return true;
 	} catch (const tf2::TransformException & ex) {
 		control_state_ = ControllerState::kSearching;
+		return false;
 	}
 }
 
@@ -360,7 +251,7 @@ void OffboardController::PublishStaticTransforms()
 	t.child_frame_id = "camera";
 	t.transform.translation.x = 0;
 	t.transform.translation.y = 0;
-	t.transform.translation.z = -1;
+	t.transform.translation.z = -0.01;
 
 	t.transform.rotation.w = 0.0;
 	t.transform.rotation.x = -0.707106;
@@ -369,6 +260,25 @@ void OffboardController::PublishStaticTransforms()
 
 	tf_broadcaster_->sendTransform(t);
 }
+
+void OffboardController::PublishVehicleTransforms(Eigen::Quaterniond &vehicle_orientation)
+{
+	geometry_msgs::msg::TransformStamped t;
+	t.header.stamp = this->get_clock()->now();
+	t.header.frame_id = "map";
+	t.child_frame_id = "x500-Depth";
+	t.transform.translation.x = 0;
+	t.transform.translation.y = 0;
+	t.transform.translation.z = 0;
+
+	t.transform.rotation.w = vehicle_orientation.w();
+	t.transform.rotation.x = vehicle_orientation.x();
+	t.transform.rotation.y = vehicle_orientation.y();
+	t.transform.rotation.z = vehicle_orientation.z();
+
+	tf_broadcaster_->sendTransform(t);
+}
+
 
 void OffboardController::PublishVehicleCommand(uint16_t command, float param1, float param2)
 {
@@ -388,16 +298,16 @@ void OffboardController::PublishVehicleCommand(uint16_t command, float param1, f
 void OffboardController::PublishOffboardControlMode()
 {
 	OffboardControlMode msg{};
-	if (control_state_ == ControllerState::kSearching)
-	{
+	// if (control_state_ == ControllerState::kSearching)
+	// {
 		msg.position = true;
 		msg.attitude = false;
 
-	} else
-	{
-		msg.position = false;
-		msg.attitude = true;
-	}
+	// } else
+	// {
+	// 	msg.position = false;
+	// 	msg.attitude = true;
+	// }
 	msg.velocity = false;
 	msg.acceleration = false;
 	msg.body_rate = false;
