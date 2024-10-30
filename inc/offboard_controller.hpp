@@ -59,10 +59,10 @@ private:
 	Controller controller_;
 
 	geometry_msgs::msg::TransformStamped target_;
+	geometry_msgs::msg::TransformStamped target_test_;
 	Eigen::Quaterniond vehicle_orientation_;
 
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
-	void AttitudeCallback(const VehicleAttitude::SharedPtr msg);
 	void TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg);
 
 	void TransformToTree(const geometry_msgs::msg::TransformStamped transform);

@@ -42,61 +42,6 @@ OffboardController::OffboardController() : Node("offboard_controller")
 
 }
 
-void OffboardController::AttitudeCallback(const VehicleAttitude::SharedPtr msg)
-{
-	PublishStaticTransforms();
-	TargetCheck();
-
-	geometry_msgs::msg::TransformStamped t;
-	t.header.stamp = this->get_clock()->now();
-	t.header.frame_id = "map";
-	t.child_frame_id = "x500-Depth";
-	t.transform.translation.x = 0;
-	t.transform.translation.y = 0;
-	t.transform.translation.z = 0;
-
-	Eigen::Quaterniond q_px4(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
-	Eigen::Quaterniond q_ros = px4_ros_com::frame_transforms::px4_to_ros_orientation(q_px4);
-
-	t.transform.rotation.w = 1.0;//q_ros.w();
-	t.transform.rotation.x = 0;//q_ros.x();
-	t.transform.rotation.y = 0;//q_ros.y();
-	t.transform.rotation.z = 0;//q_ros.z();
-
-	tf_broadcaster_->sendTransform(t);
-
-	if (control_state_ == ControllerState::kTracking)
-	{
-		PublishModeCommands();
-		controller_.set_current_transform(t.transform);
-		t = target_;
-		t.transform.translation.z = t.transform.translation.z +5;
-		controller_.set_target_transform(t.transform);
-
-		Eigen::Quaterniond target_orientation;
-		Eigen::Vector3d target_thrust;
-
-		controller_.Update(target_orientation, target_thrust);
-		
-		t.child_frame_id = "target-orientation";
-		t.transform.translation.x = 0;
-		t.transform.translation.y = 0;
-		t.transform.translation.z = 0;
-		t.transform.rotation.w = target_orientation.w();
-		t.transform.rotation.x = target_orientation.x();
-		t.transform.rotation.y = target_orientation.y();
-		t.transform.rotation.z = target_orientation.z();
-
-		tf_broadcaster_->sendTransform(t);
-		// RCLCPP_INFO(this->get_logger(), "thrust: %f", target_thrust(2));
-
-		target_orientation = px4_ros_com::frame_transforms::ros_to_px4_orientation(target_orientation);
-		target_thrust = px4_ros_com::frame_transforms::enu_to_ned_local_frame(target_thrust);
-		PublishAttitudeSetpoint(target_orientation, target_thrust);
-		// PublishTrajectorySetpoint();
-		
-	}
-}
 
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
@@ -126,35 +71,35 @@ void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetection
 			}
 		
 			Eigen::Vector3d t_ros(
-				-target_.transform.translation.x,
-				-target_.transform.translation.y,
-				-target_.transform.translation.z
+				target_.transform.translation.x,
+				target_.transform.translation.y,
+				target_.transform.translation.z
 			);
-			Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::enu_to_ned_local_frame(t_ros);
+			Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::baselink_to_aircraft_body_frame(t_ros);
 			
 			Eigen::Quaterniond q_ros(
-				vehicle_orientation_.w(),
-				vehicle_orientation_.x(),
-				vehicle_orientation_.y(),
-				vehicle_orientation_.z()
+				target_.transform.rotation.w,
+				target_.transform.rotation.x,
+				target_.transform.rotation.y,
+				target_.transform.rotation.z
 			);
-			Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::ros_to_px4_orientation(q_ros);
+			Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::baselink_to_aircraft_orientation(q_ros);
 			VehicleOdometry odom{};
 			odom.timestamp = this->get_clock()->now().seconds() * 1000000;
 			odom.timestamp_sample = target_.header.stamp.sec * 1000000;
 			odom.pose_frame = odom.POSE_FRAME_FRD;
 			odom.position = {
 				float(t_px4.x()),
-				float(t_px4.y()),
-				float(t_px4.z())
+				float(-t_px4.y()),
+				float(-t_px4.z())
 			};
-			// odom.q = {
-			// 	float(q_px4.w()),
-			// 	float(q_px4.x()),
-			// 	float(q_px4.y()),
-			// 	float(q_px4.z())
-			// };
-			odom.q = {NAN, NAN, NAN, NAN};
+			odom.q = {
+				float(q_px4.w()),
+				float(q_px4.x()),
+				float(q_px4.y()),
+				float(q_px4.z())
+			};
+			// odom.q = {NAN, NAN, NAN, NAN};
 			odom.velocity_frame = odom.VELOCITY_FRAME_UNKNOWN;
 			odom.velocity = {NAN, NAN, NAN};
 			odom.angular_velocity = {NAN, NAN, NAN};
@@ -162,8 +107,7 @@ void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetection
 			odom.orientation_variance = {NAN, NAN, NAN};
 			odom.velocity_variance = {NAN, NAN, NAN};
 			visual_odometry_pub_->publish(odom);
-			auto aircraft_euler = vehicle_orientation_.toRotationMatrix().eulerAngles(0, 1, 2);
-			RCLCPP_INFO(this->get_logger(), "trans x: %5.2f, y: %5.2f, z: %5.2f", t_ros(0), t_ros(1), t_ros(2));
+			RCLCPP_INFO(this->get_logger(), "trans x: %5.2f, y: %5.2f, z: %5.2f", t_px4(0), t_px4(1), t_px4(2));
 			// RCLCPP_INFO(this->get_logger(), "angle w: %5.2f, x: %5.2f, y: %5.2f, z: %5.2f", vehicle_orientation_.w(), vehicle_orientation_.x(), vehicle_orientation_.y(), vehicle_orientation_.z());
 		} else
 		{
@@ -216,14 +160,20 @@ void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quat
 
 bool OffboardController::TargetCheck()
 {
-	std::string target_frame = "map";
-	std::string source_frame = "tag_0";
+	std::string target_frame = "tag_0";
+	std::string source_frame = "x500-Depth";
 	control_state_ = ControllerState::kSearching;
 	try {
 		target_ = tf_buffer_->lookupTransform(
 				target_frame, source_frame,
 				tf2::TimePointZero
 			);
+		// target_frame = "tag_0";
+		// source_frame = "map";
+		// target_test_ = tf_buffer_->lookupTransform(
+		// 		target_frame, source_frame,
+		// 		tf2::TimePointZero
+		// 	);
 		return true;
 	} catch (const tf2::TransformException & ex) {
 		control_state_ = ControllerState::kSearching;
@@ -254,10 +204,10 @@ void OffboardController::PublishStaticTransforms()
 	t.transform.translation.y = 0;
 	t.transform.translation.z = 0.4;
 
-	t.transform.rotation.w = 1.0;
+	t.transform.rotation.w = 0.7071068;
 	t.transform.rotation.x = 0.0;
 	t.transform.rotation.y = 0.0;
-	t.transform.rotation.z = 0.0;
+	t.transform.rotation.z = -0.7071068;
 
 	tf_broadcaster_->sendTransform(t);
 }
@@ -279,38 +229,6 @@ void OffboardController::PublishVehicleTransforms(Eigen::Quaterniond &vehicle_or
 
 	tf_broadcaster_->sendTransform(t);
 	
-	const double yaw = 	atan2(2.0*(vehicle_orientation.y()*vehicle_orientation.z() + vehicle_orientation.w()*vehicle_orientation.x()), vehicle_orientation.w()*vehicle_orientation.w() - vehicle_orientation.x()*vehicle_orientation.x() - vehicle_orientation.y()*vehicle_orientation.y() + vehicle_orientation.z()*vehicle_orientation.z());
-	Eigen::Quaterniond yawed_quat(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
-	RCLCPP_INFO(this->get_logger(), "yaw: %5.2f", yaw);
-
-
-	t.header.stamp = this->get_clock()->now();
-	t.header.frame_id = "map";
-	t.child_frame_id = "yawed-vehicle";
-	t.transform.translation.x = 0;
-	t.transform.translation.y = 0;
-	t.transform.translation.z = 0;
-
-	t.transform.rotation.w = yawed_quat.w();
-	t.transform.rotation.x = yawed_quat.x();
-	t.transform.rotation.y = yawed_quat.y();
-	t.transform.rotation.z = yawed_quat.z();
-
-	tf_broadcaster_->sendTransform(t);
-
-	t.header.stamp = this->get_clock()->now();
-	t.header.frame_id = "map";
-	t.child_frame_id = "tag_0_no_rot";
-	t.transform.translation.x = target_.transform.translation.x;
-	t.transform.translation.y = target_.transform.translation.y;
-	t.transform.translation.z = target_.transform.translation.z;
-
-	t.transform.rotation.w = 1.0;
-	t.transform.rotation.x = 0;
-	t.transform.rotation.y = 0;
-	t.transform.rotation.z = 0;
-
-	tf_broadcaster_->sendTransform(t);
 }
 
 
