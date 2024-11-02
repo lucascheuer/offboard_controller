@@ -54,12 +54,12 @@ private:
 
     double last_command_publish_time_ = 0;
 	int consecutive_detections_ = 0;
-	
+
 	ControllerState control_state_;
 	Controller controller_;
 
-	geometry_msgs::msg::TransformStamped target_;
-	geometry_msgs::msg::TransformStamped target_test_;
+	geometry_msgs::msg::TransformStamped tag_to_aircraft_;
+	geometry_msgs::msg::TransformStamped target_to_aircraft_;
 	Eigen::Quaterniond vehicle_orientation_;
 
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);

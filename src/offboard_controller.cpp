@@ -48,11 +48,11 @@ void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 	Eigen::Quaterniond vehicle_orientation(msg->q[0], msg->q[1], msg->q[2], msg->q[3]);
 	vehicle_orientation_ = vehicle_orientation;
 	PublishVehicleTransforms(vehicle_orientation);
-	// if (control_state_ == ControllerState::kTracking)
-	// {
-		// PublishModeCommands();
+	if (control_state_ == ControllerState::kTracking)
+	{
+		PublishModeCommands();
 		// PublishTrajectorySetpoint();
-	// }
+	}
 }
 
 void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg)
@@ -70,36 +70,23 @@ void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetection
 				control_state_ = ControllerState::kTracking;
 			}
 		
-			Eigen::Vector3d t_ros(
-				target_.transform.translation.x,
-				target_.transform.translation.y,
-				target_.transform.translation.z
-			);
-			Eigen::Vector3d t_px4 = px4_ros_com::frame_transforms::baselink_to_aircraft_body_frame(t_ros);
-			
-			Eigen::Quaterniond q_ros(
-				target_.transform.rotation.w,
-				target_.transform.rotation.x,
-				target_.transform.rotation.y,
-				target_.transform.rotation.z
-			);
-			Eigen::Quaterniond q_px4 = px4_ros_com::frame_transforms::baselink_to_aircraft_orientation(q_ros);
 			VehicleOdometry odom{};
 			odom.timestamp = this->get_clock()->now().seconds() * 1000000;
-			odom.timestamp_sample = target_.header.stamp.sec * 1000000;
+			odom.timestamp_sample = tag_to_aircraft_.header.stamp.sec * 1000000;
 			odom.pose_frame = odom.POSE_FRAME_FRD;
+			// rotate about x 180deg
 			odom.position = {
-				float(t_px4.x()),
-				float(-t_px4.y()),
-				float(-t_px4.z())
+				float(tag_to_aircraft_.transform.translation.x),
+				float(-tag_to_aircraft_.transform.translation.y),
+				float(-tag_to_aircraft_.transform.translation.z)
 			};
+			// flip? for some reason
 			odom.q = {
-				float(q_px4.w()),
-				float(q_px4.x()),
-				float(q_px4.y()),
-				float(q_px4.z())
+				float(tag_to_aircraft_.transform.rotation.w),
+				float(-tag_to_aircraft_.transform.rotation.x),
+				float(-tag_to_aircraft_.transform.rotation.y),
+				float(-tag_to_aircraft_.transform.rotation.z)
 			};
-			// odom.q = {NAN, NAN, NAN, NAN};
 			odom.velocity_frame = odom.VELOCITY_FRAME_UNKNOWN;
 			odom.velocity = {NAN, NAN, NAN};
 			odom.angular_velocity = {NAN, NAN, NAN};
@@ -107,8 +94,33 @@ void OffboardController::TagCallback(const apriltag_msgs::msg::AprilTagDetection
 			odom.orientation_variance = {NAN, NAN, NAN};
 			odom.velocity_variance = {NAN, NAN, NAN};
 			visual_odometry_pub_->publish(odom);
-			RCLCPP_INFO(this->get_logger(), "trans x: %5.2f, y: %5.2f, z: %5.2f", t_px4(0), t_px4(1), t_px4(2));
-			// RCLCPP_INFO(this->get_logger(), "angle w: %5.2f, x: %5.2f, y: %5.2f, z: %5.2f", vehicle_orientation_.w(), vehicle_orientation_.x(), vehicle_orientation_.y(), vehicle_orientation_.z());
+
+			// geometry_msgs::msg::TransformStamped t;
+			// t.header.stamp = this->get_clock()->now();
+			// t.header.frame_id = "map";
+			// t.child_frame_id = "tag_px4";
+			// t.transform.translation.x = tag_to_aircraft_.transform.translation.x;
+			// t.transform.translation.y = -tag_to_aircraft_.transform.translation.y;
+			// t.transform.translation.z = -tag_to_aircraft_.transform.translation.z;
+			// t.transform.rotation.w = tag_to_aircraft_.transform.rotation.w;
+			// t.transform.rotation.x = -tag_to_aircraft_.transform.rotation.x;
+			// t.transform.rotation.y = -tag_to_aircraft_.transform.rotation.y;
+			// t.transform.rotation.z = -tag_to_aircraft_.transform.rotation.z;
+
+			// tf_broadcaster_->sendTransform(t);
+
+			// t.header.stamp = this->get_clock()->now();
+			// t.header.frame_id = "map";
+			// t.child_frame_id = "tag_px4_unrotated";
+			// t.transform.translation.x = target_to_aircraft_.transform.translation.x;
+			// t.transform.translation.y = -target_to_aircraft_.transform.translation.y;
+			// t.transform.translation.z = -target_to_aircraft_.transform.translation.z;
+			// t.transform.rotation.w = target_to_aircraft_.transform.rotation.w;
+			// t.transform.rotation.x = -target_to_aircraft_.transform.rotation.x;
+			// t.transform.rotation.y = -target_to_aircraft_.transform.rotation.y;
+			// t.transform.rotation.z = -target_to_aircraft_.transform.rotation.z;
+
+			// tf_broadcaster_->sendTransform(t);
 		} else
 		{
 			if (consecutive_detections_ > 0)
@@ -160,20 +172,43 @@ void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quat
 
 bool OffboardController::TargetCheck()
 {
-	std::string target_frame = "tag_0";
-	std::string source_frame = "x500-Depth";
+	std::string target_frame = "map";
+	std::string source_frame = "tag_0";
 	control_state_ = ControllerState::kSearching;
 	try {
-		target_ = tf_buffer_->lookupTransform(
+		geometry_msgs::msg::TransformStamped map_to_tag_ = tf_buffer_->lookupTransform(
 				target_frame, source_frame,
 				tf2::TimePointZero
 			);
-		// target_frame = "tag_0";
-		// source_frame = "map";
-		// target_test_ = tf_buffer_->lookupTransform(
-		// 		target_frame, source_frame,
-		// 		tf2::TimePointZero
-		// 	);
+		geometry_msgs::msg::TransformStamped t;
+		t.header.stamp = this->get_clock()->now();
+		t.header.frame_id = "tag_0";
+		t.child_frame_id = "tag_location";
+		t.transform.translation.x = 0;
+		t.transform.translation.y = 0;
+		t.transform.translation.z = 0;
+		Eigen::Quaterniond rotation(map_to_tag_.transform.rotation.w, map_to_tag_.transform.rotation.x, map_to_tag_.transform.rotation.y, map_to_tag_.transform.rotation.z);
+		Eigen::Vector3d euler = rotation.toRotationMatrix().eulerAngles(2, 1, 0);
+		rotation = Eigen::AngleAxisd(-euler(2), Eigen::Vector3d::UnitX()) * Eigen::AngleAxisd(-euler(1), Eigen::Vector3d::UnitY());
+		
+		t.transform.rotation.w = rotation.w();
+		t.transform.rotation.x = rotation.x();
+		t.transform.rotation.y = rotation.y();
+		t.transform.rotation.z = rotation.z();
+		tf_broadcaster_->sendTransform(t);
+
+		target_frame = "tag_0";
+		source_frame = "x500-Depth";
+		tag_to_aircraft_ = tf_buffer_->lookupTransform(
+				target_frame, source_frame,
+				tf2::TimePointZero
+			);
+		target_frame = "tag_location";
+		source_frame = "x500-Depth";
+		target_to_aircraft_ = tf_buffer_->lookupTransform(
+				target_frame, source_frame,
+				tf2::TimePointZero
+			);
 		return true;
 	} catch (const tf2::TransformException & ex) {
 		control_state_ = ControllerState::kSearching;
@@ -188,10 +223,10 @@ void OffboardController::PublishModeCommands()
 	{
 		last_command_publish_time_ = current_time;
 		// PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
-		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 7);
-		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
+		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 3);
+		// PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
 	}
-	PublishOffboardControlMode();
+	// PublishOffboardControlMode();
 }
 
 void OffboardController::PublishStaticTransforms()
@@ -202,12 +237,11 @@ void OffboardController::PublishStaticTransforms()
 	t.child_frame_id = "camera";
 	t.transform.translation.x = 0;
 	t.transform.translation.y = 0;
-	t.transform.translation.z = 0.4;
-
-	t.transform.rotation.w = 0.7071068;
-	t.transform.rotation.x = 0.0;
-	t.transform.rotation.y = 0.0;
-	t.transform.rotation.z = -0.7071068;
+	t.transform.translation.z = 0.5;
+	t.transform.rotation.w = 0.0;
+	t.transform.rotation.x = -0.7071068;
+	t.transform.rotation.y = 0.7071068;
+	t.transform.rotation.z = 0.0;
 
 	tf_broadcaster_->sendTransform(t);
 }
