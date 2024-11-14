@@ -51,21 +51,21 @@ def generate_launch_description():
     )
     # --ros-args -p config_file:='+os.path.join(pkg_trr_bringup, 'config', 'gz_bridge.yaml')
     # print(os.path.join(get_package_share_directory('offboard_controller'), 'cfg', 'bridge.yaml'))
-    remappings = [('/apriltag/image_rect', '/image_rect'),
-                  ('/camera_info', '/camera/camera_info')]
-    config = os.path.join(
-        get_package_share_directory('apriltag_ros'),
-        'cfg',
-        'px4_tags.yaml'
-        )
-    apriltag = Node(
-        package='apriltag_ros',
-        executable='apriltag_node',
-        name='apriltag',
-        namespace='apriltag',
-        remappings=remappings,
-        parameters=[config]
-    )
+    # remappings = [('/apriltag/image_rect', '/image_rect'),
+    #               ('/camera_info', '/camera/camera_info')]
+    # config = os.path.join(
+    #     get_package_share_directory('apriltag_ros'),
+    #     'cfg',
+    #     'px4_tags.yaml'
+    #     )
+    # apriltag = Node(
+    #     package='apriltag_ros',
+    #     executable='apriltag_node',
+    #     name='apriltag',
+    #     namespace='apriltag',
+    #     remappings=remappings,
+    #     parameters=[config]
+    # )
     ground_truth = Node (
         package='ground_truth',
         executable='ground_truth',
@@ -85,7 +85,7 @@ def generate_launch_description():
         offboard_controller,
         rviz,
         bridge,
-        apriltag,
+        # apriltag,
         ground_truth,
         image_proc
     ])

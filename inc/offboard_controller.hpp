@@ -47,6 +47,8 @@ private:
 	rclcpp::Publisher<TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
 	rclcpp::Publisher<VehicleAttitudeSetpoint>::SharedPtr attitude_setpoint_pub_;
 
+	rclcpp::TimerBase::SharedPtr timer_{nullptr};
+
 	// tf pub and subs
 	std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 	std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
@@ -61,6 +63,7 @@ private:
 	geometry_msgs::msg::TransformStamped tag_to_aircraft_;
 	geometry_msgs::msg::TransformStamped target_to_aircraft_;
 	Eigen::Quaterniond vehicle_orientation_;
+	Eigen::Vector3d vehicle_transform_;
 
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
 	void TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg);
@@ -70,13 +73,15 @@ private:
 	void PublishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0);
 	void PublishOffboardControlMode();
 	void PublishTrajectorySetpoint();
-	void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
+	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 
+	void PublishVehicleOdometry();
 
 	bool TargetCheck();
+	bool GetGroundTruth(geometry_msgs::msg::TransformStamped &vehicle_transform);
 	void PublishModeCommands();
 	void PublishStaticTransforms();
-	void PublishVehicleTransforms(Eigen::Quaterniond &vehicle_orientation);
+	void PublishVehicleTransforms(Eigen::Vector3d &vehicle_translation, Eigen::Quaterniond &vehicle_orientation);
 	
 };
