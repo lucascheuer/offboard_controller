@@ -20,12 +20,10 @@ using std::placeholders::_1;
 
 OffboardController::OffboardController() : Node("offboard_controller")
 {
-	// node setup
-	this->set_parameter(rclcpp::Parameter("use_sim_time", true));
+	DeclareParameters();
+	set_parameter(rclcpp::Parameter("use_sim_time", true));
 	rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
 	auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
-
-	control_state_ = ControllerState::kSearching;
 
 	// subs
 	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
@@ -48,7 +46,17 @@ OffboardController::OffboardController() : Node("offboard_controller")
 
 }
 
-
+void OffboardController::DeclareParameters()
+{
+	declare_parameter<std::vector<double>>("start_pos", {0.0, 0.0, -1.0});
+	declare_parameter<std::vector<double>>("start_vel", {0.0, 0.0, 0.0});
+	declare_parameter<std::vector<double>>("start_acc", {0.0, 0.0, 0.0});
+	declare_parameter<double>("start_yaw", 0.0);
+	declare_parameter<std::vector<double>>("end_pos", {0.0, 0.0, -1.0});
+	declare_parameter<std::vector<double>>("end_vel", {0.0, 0.0, 0.0});
+	declare_parameter<std::vector<double>>("end_acc", {0.0, 0.0, 0.0});
+	declare_parameter<double>("end_yaw", 0.0);
+}
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
 	Eigen::Quaterniond vehicle_orientation(msg->q[0], msg->q[2], msg->q[1], -msg->q[3]);
@@ -57,21 +65,45 @@ void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 	vehicle_transform_ = vehicle_translation;
 	vehicle_orientation_ = vehicle_orientation;
 	PublishVehicleTransforms(vehicle_translation, vehicle_orientation);
-	// if (control_state_ == ControllerState::kTracking)
-	// {
-	// 	PublishModeCommands();
-	// 	PublishTrajectorySetpoint();
-	// }
+	current_state_.x = msg->position[1];
+	current_state_.y = msg->position[0];
+	current_state_.z = -msg->position[2];
+	current_state_.vx = msg->velocity[1];
+	current_state_.vy = msg->velocity[0];
+	current_state_.vz = -msg->velocity[2];
+	current_state_.ax = 0;
+	current_state_.ay = 0;
+	current_state_.az = 0;
+
+
+	Eigen::Vector3d euler = vehicle_orientation.toRotationMatrix().eulerAngles(2, 1, 0);
+	double yaw = euler(0);
+	if (abs(euler(1)) > M_PI_2 && abs(euler(2)) > M_PI_2)
+	{
+		yaw -= M_PI;
+	}
+	current_state_.yaw = yaw; // wrong, needs to be 
+	current_state_.yaw_rate = msg->angular_velocity[2]; // wrong frame? maybe?
 }
 
 
-void OffboardController::PublishTrajectorySetpoint()
+void OffboardController::PublishTrajectorySetpoint(double time)
 {
+	// node setup
+	std::vector<double> pos;
+	std::vector<double> vel;
+	std::vector<double> acc;
+	double yaw;
+	get_parameter("start_pos", pos);
+	get_parameter("start_vel", vel);
+	get_parameter("start_acc", acc);
+	get_parameter("start_yaw", yaw);
+
 	TrajectorySetpoint msg{};
-	msg.position = {1, -0.5, -2.0};
-	msg.velocity = {0.0, 0.0, 0.0};
-	msg.acceleration = {0.0, 0.0, 0.0};
-	msg.yaw = this->get_clock()->now().seconds() *0.1;
+	msg.position = {float(pos[0]), float(pos[1]), float(pos[2])};
+	msg.velocity = {float(vel[0]), float(vel[1]), float(vel[2])};
+	msg.acceleration = {float(acc[0]), float(acc[1]), float(acc[2])};
+	msg.yaw = yaw;
 	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
 	trajectory_setpoint_pub_->publish(msg);
 }
@@ -132,7 +164,7 @@ void OffboardController::PublishVehicleOdometry()
 		odom.velocity_variance = {NAN, NAN, NAN};
 		visual_odometry_pub_->publish(odom);
 		PublishModeCommands();
-		// PublishTrajectorySetpoint();
+		PublishTrajectorySetpoint(0.0);
 	}
 }
 
@@ -140,77 +172,17 @@ bool OffboardController::GetGroundTruth(geometry_msgs::msg::TransformStamped &ve
 {
 	std::string target_frame = "map";
 	std::string source_frame = "x500_mono_cam_1";
-	control_state_ = ControllerState::kSearching;
 	try {
 		vehicle_transform = tf_buffer_->lookupTransform(
 				target_frame, source_frame,
 				tf2::TimePointZero
 			);
-		control_state_ = ControllerState::kTracking;
 		return true;
 	} catch (const tf2::TransformException & ex) {
-		control_state_ = ControllerState::kSearching;
 		return false;
 	}
 }
 
-
-// bool OffboardController::TargetCheck()
-// {
-// 	std::string target_frame = "map";
-// 	std::string source_frame = "tag_0";
-// 	control_state_ = ControllerState::kSearching;
-// 	try {
-// 		geometry_msgs::msg::TransformStamped map_to_tag_ = tf_buffer_->lookupTransform(
-// 				target_frame, source_frame,
-// 				tf2::TimePointZero
-// 			);
-// 		geometry_msgs::msg::TransformStamped t;
-// 		t.header.stamp = this->get_clock()->now();
-// 		t.header.frame_id = "map";
-// 		t.child_frame_id = "tag_location";
-// 		t.transform.translation.x = map_to_tag_.transform.translation.x;
-// 		t.transform.translation.y = map_to_tag_.transform.translation.y;
-// 		t.transform.translation.z = map_to_tag_.transform.translation.z;
-// 		Eigen::Quaterniond rotation2(map_to_tag_.transform.rotation.w, map_to_tag_.transform.rotation.x, map_to_tag_.transform.rotation.y, map_to_tag_.transform.rotation.z);
-// // 		Eigen::Quaterniond rotation(1.0, -map_to_tag_.transform.rotation.x, -map_to_tag_.transform.rotation.y, 0.0);
-// // 		rotation.w() = sqrt(1 - sqrt(map_to_tag_.transform.rotation.x * map_to_tag_.transform.rotation.x + map_to_tag_.transform.rotation.y * map_to_tag_.transform.rotation.y));
-// // //
-// // 		rotation.normalize();
-// 		Eigen::Vector3d euler = rotation2.toRotationMatrix().eulerAngles(2, 1, 0);
-// 		double z_rot = euler(0);
-
-// 		if (abs(euler(1)) > M_PI_2&& abs(euler(2)) > M_PI_2)
-// 		{
-// 			z_rot -= M_PI;
-// 		}
-// 		RCLCPP_INFO(this->get_logger(), "euler zyx z_rot: %3.2f, %3.2f, %3.2f, %3.2f", euler(0), euler(1), euler(2), z_rot);
-
-// 		Eigen::Quaterniond rotation(Eigen::AngleAxisd(z_rot, Eigen::Vector3d::UnitZ()));
-// 		t.transform.rotation.w = rotation.w();
-// 		t.transform.rotation.x = rotation.x();
-// 		t.transform.rotation.y = rotation.y();
-// 		t.transform.rotation.z = rotation.z();
-// 		tf_broadcaster_->sendTransform(t);
-
-// 		target_frame = "tag_0";
-// 		source_frame = "x500-Depth";
-// 		tag_to_aircraft_ = tf_buffer_->lookupTransform(
-// 				target_frame, source_frame,
-// 				tf2::TimePointZero
-// 			);
-// 		target_frame = "tag_location";
-// 		source_frame = "x500-Depth";
-// 		target_to_aircraft_ = tf_buffer_->lookupTransform(
-// 				target_frame, source_frame,
-// 				tf2::TimePointZero
-// 			);
-// 		return true;
-// 	} catch (const tf2::TransformException & ex) {
-// 		control_state_ = ControllerState::kSearching;
-// 		return false;
-// 	}
-// }
 
 void OffboardController::PublishModeCommands()
 {
@@ -218,11 +190,11 @@ void OffboardController::PublishModeCommands()
 	if (current_time - last_command_publish_time_ > 0.5)
 	{
 		last_command_publish_time_ = current_time;
-		// PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6); // offboard mode
-		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 3); // position mode
+		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6); // offboard mode
+		// PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 3); // position mode
 		PublishVehicleCommand(VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
 	}
-	// PublishOffboardControlMode();
+	PublishOffboardControlMode(); 
 }
 
 void OffboardController::PublishStaticTransforms()
@@ -259,18 +231,18 @@ void OffboardController::PublishVehicleTransforms(Eigen::Vector3d &vehicle_trans
 
 	tf_broadcaster_->sendTransform(t);
 
-	t.header.stamp = this->get_clock()->now();
-	t.header.frame_id = "map";
-	t.child_frame_id = "x500-Depth-loc";
-	t.transform.translation.x = vehicle_translation(0);
-	t.transform.translation.y = vehicle_translation(1);
-	t.transform.translation.z = vehicle_translation(2);
+	// t.header.stamp = this->get_clock()->now();
+	// t.header.frame_id = "map";
+	// t.child_frame_id = "x500-Depth-loc";
+	// t.transform.translation.x = vehicle_translation(0);
+	// t.transform.translation.y = vehicle_translation(1);
+	// t.transform.translation.z = vehicle_translation(2);
 
-	t.transform.rotation.w = 1;
-	t.transform.rotation.x = vehicle_orientation.x();
-	t.transform.rotation.y = 0;
-	t.transform.rotation.z = 0;
-	tf_broadcaster_->sendTransform(t);
+	// t.transform.rotation.w = 1;
+	// t.transform.rotation.x = vehicle_orientation.x();
+	// t.transform.rotation.y = 0;
+	// t.transform.rotation.z = 0;
+	// tf_broadcaster_->sendTransform(t);
 
 }
 
@@ -293,16 +265,8 @@ void OffboardController::PublishVehicleCommand(uint16_t command, float param1, f
 void OffboardController::PublishOffboardControlMode()
 {
 	OffboardControlMode msg{};
-	// if (control_state_ == ControllerState::kSearching)
-	// {
-		msg.position = true;
-		msg.attitude = false;
-
-	// } else
-	// {
-	// 	msg.position = false;
-	// 	msg.attitude = true;
-	// }
+	msg.position = true;
+	msg.attitude = false;
 	msg.velocity = false;
 	msg.acceleration = false;
 	msg.body_rate = false;

@@ -17,6 +17,7 @@
 #include <Eigen/Eigen>
 
 #include "controller.hpp"
+#include "state.hpp"
 
 using namespace px4_msgs::msg;
 
@@ -25,12 +26,6 @@ class OffboardController : public rclcpp::Node
 public:
 	OffboardController();
 private:
-
-	enum class ControllerState
-	{
-		kSearching,
-		kTracking
-	};
 
 	// callbacks on these
 	rclcpp::Subscription<VehicleOdometry>::SharedPtr odom_sub_;
@@ -57,14 +52,13 @@ private:
     double last_command_publish_time_ = 0;
 	int consecutive_detections_ = 0;
 
-	ControllerState control_state_;
-	Controller controller_;
+	State current_state_;
+	State target_;
 
-	geometry_msgs::msg::TransformStamped tag_to_aircraft_;
-	geometry_msgs::msg::TransformStamped target_to_aircraft_;
 	Eigen::Quaterniond vehicle_orientation_;
 	Eigen::Vector3d vehicle_transform_;
 
+	void DeclareParameters();
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
 	void TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg);
 
@@ -72,7 +66,7 @@ private:
 
 	void PublishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0);
 	void PublishOffboardControlMode();
-	void PublishTrajectorySetpoint();
+	void PublishTrajectorySetpoint(double time);
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 

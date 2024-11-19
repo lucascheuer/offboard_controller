@@ -14,6 +14,11 @@ def generate_launch_description():
         package='offboard_controller',
         executable='offboard_controller',
         name='offboard_controller',
+        parameters= [os.path.join(
+            get_package_share_directory('offboard_controller'),
+            'cfg',
+            'params.yaml'
+            )]
     )
     rviz = Node(
         package='rviz2',

@@ -1,0 +1,10 @@
+offboard_controller:
+  ros__parameters:
+    # start_pos: [0.0, 0.0, -3.0]
+    start_vel: [0.0, 0.0, 0.0]
+    start_acc: [0.0, 0.0, 0.0]
+    start_yaw: 0.0
+    end_pos: [10.0, 2.0, 1.0]
+    end_vel: [0.0, 0.0, 0.0]
+    end_acc: [0.0, 0.0, 0.0]
+    end_yaw: 0.0
