@@ -42,7 +42,15 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
 	timer_ = this->create_wall_timer(10ms, std::bind(&OffboardController::PublishVehicleOdometry, this));
-
+	MinSnapTraj::Waypoint waypoint_one(Eigen::Vector3d(0, 0, 0), 0);
+	MinSnapTraj::Waypoint waypoint_two(Eigen::Vector3d(1, 0, 0), 0);
+	MinSnapTraj::Waypoint waypoint_three(Eigen::Vector3d(1, 1, 0), 0);
+	MinSnapTraj::Waypoint waypoint_four(Eigen::Vector3d(0, 1, 0), 0);
+	traj_.AddWaypoint(waypoint_one);
+	traj_.AddWaypoint(waypoint_two);
+	traj_.AddWaypoint(waypoint_three);
+	traj_.AddWaypoint(waypoint_four);
+	traj_.Solve(1.0);
 
 }
 

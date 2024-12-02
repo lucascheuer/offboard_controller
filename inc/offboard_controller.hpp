@@ -18,6 +18,7 @@
 
 #include "controller.hpp"
 #include "state.hpp"
+#include "min_snap_traj.hpp"
 
 using namespace px4_msgs::msg;
 
@@ -54,6 +55,7 @@ private:
 
 	State current_state_;
 	State target_;
+	MinSnapTraj traj_;
 
 	Eigen::Quaterniond vehicle_orientation_;
 	Eigen::Vector3d vehicle_transform_;

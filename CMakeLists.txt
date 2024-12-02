@@ -26,6 +26,8 @@ find_package(nav_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(px4_ros_com REQUIRED)
+find_package(OsqpEigen REQUIRED)
+find_package(osqp REQUIRED)
 
 
 include_directories(inc)
@@ -33,7 +35,9 @@ include_directories(inc)
 add_executable(offboard_controller
 src/offboard_controller.cpp
 src/controller.cpp
+src/min_snap_traj.cpp
 )
+target_link_libraries(offboard_controller OsqpEigen::OsqpEigen osqp::osqp)
 ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs apriltag_msgs tf2 tf2_ros nav_msgs trajectory_msgs)
 install(TARGETS offboard_controller DESTINATION lib/${PROJECT_NAME})
 
