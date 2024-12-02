@@ -10,16 +10,51 @@ void MinSnapTraj::AddWaypoint(Waypoint new_waypoint)
 {
 	waypoints_.push_back(new_waypoint);
 }
-void MinSnapTraj::Evaluate(double time)
+void MinSnapTraj::Evaluate(double time, State &state)
 {
+	assert(time >= 0.0 && time <= times_.sum());
+	int segment = 0;
+	for (segment = 0; segment < num_segments_; ++segment)
+	{
+		if (time > times_(segment))
+		{
+			time -= times_(segment);
+		} else
+		{
+			break;
+		}
+	}
 
+	std::cout << "In segment " << segment << std::endl;
+
+	state.x  = x_polys_[segment][0].Evaluate(time);
+	state.vx = x_polys_[segment][1].Evaluate(time);
+	state.ax = x_polys_[segment][2].Evaluate(time);
+
+	state.y  = y_polys_[segment][0].Evaluate(time);
+	state.vy = y_polys_[segment][1].Evaluate(time);
+	state.ay = y_polys_[segment][2].Evaluate(time);
+
+	state.z  = z_polys_[segment][0].Evaluate(time);
+	state.vz = z_polys_[segment][1].Evaluate(time);
+	state.az = z_polys_[segment][2].Evaluate(time);
+
+	state.yaw  = yaw_polys_[segment][0].Evaluate(time);
+	state.vyaw = yaw_polys_[segment][1].Evaluate(time);
+
+	std::cout << "x:   " << state.x << std::endl;
+	std::cout << "y:   " << state.y << std::endl;
+	std::cout << "z:   " << state.z << std::endl;
+	std::cout << "yaw: " << state.yaw << std::endl;
+	
 }
 bool MinSnapTraj::Solve(double average_speed)
 {
 	std::cout << "solving" << std::endl;
 	num_segments_ = waypoints_.size() - 1;
 	num_internal_joints_ = waypoints_.size() - 2;
-	
+	num_variables_ = kCoeffCount * num_segments_;
+	num_constraints_ = 2 * num_segments_ + 8 + 4 * num_internal_joints_;
 	times_.resize(num_segments_);
 	
 	std::cout << "calc time" << std::endl;
@@ -27,27 +62,138 @@ bool MinSnapTraj::Solve(double average_speed)
 	Eigen::MatrixXd time_powers;
 	std::cout << "calc powers" << std::endl;
 	CalculateTimePowers(time_powers);
-	Eigen::SparseMatrix<double> Q(kCoeffCount * num_segments_, kCoeffCount * num_segments_);
+	Eigen::SparseMatrix<double> Q(num_variables_, num_variables_);
 
-	Eigen::SparseMatrix<double> A(2 * num_segments_ + 8 + 4 * num_internal_joints_, kCoeffCount * num_segments_);
-	Eigen::VectorXd b_x(2 * num_segments_ + 8 + 4 * num_internal_joints_);
-	Eigen::VectorXd b_y(2 * num_segments_ + 8 + 4 * num_internal_joints_);
-	Eigen::VectorXd b_z(2 * num_segments_ + 8 + 4 * num_internal_joints_);
+	Eigen::SparseMatrix<double> A(2 * num_segments_ + 8 + 4 * num_internal_joints_, num_variables_);
+	Eigen::VectorXd b_x(num_constraints_);
+	Eigen::VectorXd b_y(num_constraints_);
+	Eigen::VectorXd b_z(num_constraints_);
+	Eigen::VectorXd b_yaw(num_constraints_);
+	Eigen::VectorXd gradient = Eigen::VectorXd::Zero(num_variables_);
 	std::cout << "generate Q" << std::endl;
 	GenerateQ(time_powers, Q);
+	std::cout << "Q rows: " << Q.rows() << " Q cols: " << Q.cols() << std::endl;
+
 	std::cout << "Get constraints" << std::endl;
-	GenerateConstraints(time_powers, A, b_x, b_y, b_z);
-	Eigen::IOFormat CleanFmt(4, 0, ", ", "\n", "[", "]");
-	std::cout << "Q" << std::endl;
-	std::cout << Q.toDense() << std::endl << std::endl;
-	std::cout << "A" << std::endl;
-	std::cout << A.toDense() << std::endl << std::endl;
-	std::cout << "b x" << std::endl;
-	std::cout << b_x << std::endl << std::endl;
-	std::cout << "b y" << std::endl;
-	std::cout << b_y << std::endl << std::endl;
-	std::cout << "b z" << std::endl;
-	std::cout << b_z << std::endl << std::endl;
+	GenerateConstraints(time_powers, A, b_x, b_y, b_z, b_yaw);
+	// Eigen::IOFormat CleanFmt(4, 0, ", ", "\n", "[", "]");
+	// std::cout << "Q" << std::endl;
+	// std::cout << Q.toDense() << std::endl << std::endl;
+	// std::cout << "A" << std::endl;
+	// std::cout << A.toDense() << std::endl << std::endl;
+	// std::cout << "b x" << std::endl;
+	// std::cout << b_x << std::endl << std::endl;
+	// std::cout << "b y" << std::endl;
+	// std::cout << b_y << std::endl << std::endl;
+	// std::cout << "b z" << std::endl;
+	// std::cout << b_z << std::endl << std::endl;
+
+	// initialize the solver
+	solver_.settings()->setWarmStart(false);
+	solver_.settings()->setVerbosity(false);
+	solver_.data()->setNumberOfVariables(num_variables_);
+	solver_.data()->setNumberOfConstraints(num_constraints_);
+	if(!solver_.data()->setHessianMatrix(Q))
+	{
+		std::cout << "Hessian not set" << std::endl;
+		return false;
+	}
+	if(!solver_.data()->setGradient(gradient))
+	{
+		std::cout << "Gradient not set" << std::endl;
+		return false;
+	}
+	if(!solver_.data()->setLinearConstraintsMatrix(A))
+	{
+		std::cout << "Constraint matrix not set" << std::endl;
+		return false;
+	}
+	if(!solver_.data()->setLowerBound(b_x))
+	{
+		std::cout << "Constraint LB not set" << std::endl;
+		return false;
+	}
+	if(!solver_.data()->setUpperBound(b_x))
+	{
+		std::cout << "Constraint UB not set" << std::endl;
+		return false;
+	}
+	if(!solver_.initSolver())
+	{
+		std::cout << "Not initialized" << std::endl;
+		return false;
+	}
+
+	if(solver_.solveProblem() != OsqpEigen::ErrorExitFlag::NoError)
+	{
+		std::cout << "X not solved" << std::endl;
+		return false;
+	}
+	Eigen::VectorXd x_coeffs = solver_.getSolution();
+
+	solver_.updateBounds(b_y, b_y);
+	if(solver_.solveProblem() != OsqpEigen::ErrorExitFlag::NoError)
+	{
+		std::cout << "Y not solved" << std::endl;
+		return false;
+	}
+	Eigen::VectorXd y_coeffs = solver_.getSolution();
+
+
+	solver_.updateBounds(b_z, b_z);
+	if(solver_.solveProblem() != OsqpEigen::ErrorExitFlag::NoError)
+	{
+		std::cout << "Z not solved" << std::endl;
+		return false;
+	}
+	Eigen::VectorXd z_coeffs = solver_.getSolution();
+
+
+	solver_.updateBounds(b_yaw, b_yaw);
+	if(solver_.solveProblem() != OsqpEigen::ErrorExitFlag::NoError)
+	{
+		std::cout << "Yaw not solved" << std::endl;
+		return false;
+	}
+	Eigen::VectorXd yaw_coeffs = solver_.getSolution();
+
+	// assign polynomials and derivatives
+	std::cout << "x coeffs: " << std::endl << x_coeffs <<std::endl <<std::endl;
+	for (int segment = 0; segment < num_segments_; ++segment)
+	{
+		std::cout << "segment " << segment << ":" << std::endl;
+		std::vector<Polynomial> segment_x_polys;
+		std::vector<Polynomial> segment_y_polys;
+		std::vector<Polynomial> segment_z_polys;
+		std::vector<Polynomial> segment_yaw_polys;
+		segment_x_polys.push_back(Polynomial(x_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
+		segment_y_polys.push_back(Polynomial(y_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
+		segment_z_polys.push_back(Polynomial(z_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
+		segment_yaw_polys.push_back(Polynomial(yaw_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
+		std::cout << "x:   " << segment_x_polys.back() << std::endl;
+		std::cout << "y:   " << segment_y_polys.back() << std::endl;
+		std::cout << "z:   " << segment_z_polys.back() << std::endl;
+		std::cout << "yaw: " << segment_yaw_polys.back() << std::endl;
+		std::cout << std::endl << std::endl;
+		for (int derivative = 1; derivative < 3; ++derivative)
+		{
+			segment_x_polys.push_back(segment_x_polys.back().Derivative());
+			segment_y_polys.push_back(segment_y_polys.back().Derivative());
+			segment_z_polys.push_back(segment_z_polys.back().Derivative());
+			segment_yaw_polys.push_back(segment_yaw_polys.back().Derivative());
+			std::cout << "x derivative " << derivative << ": " << segment_x_polys.back() << std::endl;
+			std::cout << "y derivative " << derivative << ": " << segment_y_polys.back() << std::endl;
+			std::cout << "z derivative " << derivative << ": " << segment_z_polys.back() << std::endl;
+			std::cout << "yaw  derivat " << derivative << ": " << segment_yaw_polys.back() << std::endl;
+			std::cout << std::endl << std::endl;
+		}
+		x_polys_.push_back(segment_x_polys);
+		y_polys_.push_back(segment_y_polys);
+		z_polys_.push_back(segment_z_polys);
+		yaw_polys_.push_back(segment_yaw_polys);
+	}
+	
+	
 
 	return true;
 }
@@ -121,7 +267,7 @@ void MinSnapTraj::FillH(const Eigen::VectorXd &time_powers_row, Eigen::MatrixXd 
 	// ⎣0  0  0  0  10080⋅tf   40320⋅tf   100800⋅tf   201600⋅tf ⎦
 }
 
-void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen::SparseMatrix<double> &A, Eigen::VectorXd &b_x, Eigen::VectorXd &b_y, Eigen::VectorXd &b_z)
+void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen::SparseMatrix<double> &A, Eigen::VectorXd &b_x, Eigen::VectorXd &b_y, Eigen::VectorXd &b_z, Eigen::VectorXd &b_yaw)
 {
 	// st A * p = b
 	// p is the coefficients
@@ -141,6 +287,7 @@ void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen:
 	assert(b_x.size() == 2 * num_segments_ + 8 + 4 * num_internal_joints_);
 	assert(b_y.size() == 2 * num_segments_ + 8 + 4 * num_internal_joints_);
 	assert(b_z.size() == 2 * num_segments_ + 8 + 4 * num_internal_joints_);
+	assert(b_yaw.size() == 2 * num_segments_ + 8 + 4 * num_internal_joints_);
 	std::cout << "times" << std::endl;
 	std::cout << time_powers;
 	std::cout << "asserts succeeded" << std::endl;
@@ -149,6 +296,7 @@ void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen:
 	b_x = Eigen::VectorXd::Zero(b_x.rows());
 	b_y = Eigen::VectorXd::Zero(b_y.rows());
 	b_z = Eigen::VectorXd::Zero(b_z.rows());
+	b_yaw = Eigen::VectorXd::Zero(b_yaw.rows());
 	Eigen::VectorXd ZeroTimes = Eigen::VectorXd::Zero(kCoeffCount);
 	std::cout << "doing math" << std::endl;
 	int constraint_count = 0; // Each row in A is a constraint. If we just do each constraint 1 by 1 and increment this we won't get lost.
@@ -162,6 +310,7 @@ void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen:
 		b_x(constraint_count) = waypoints_[segment].pos(0);
 		b_y(constraint_count) = waypoints_[segment].pos(1);
 		b_z(constraint_count) = waypoints_[segment].pos(2);
+		b_yaw(constraint_count) = waypoints_[segment].yaw;
 		++constraint_count;
 		// end time
 		Eigen::RowVectorXd constraint_row(kCoeffCount);
@@ -172,6 +321,7 @@ void MinSnapTraj::GenerateConstraints(const Eigen::MatrixXd &time_powers, Eigen:
 		b_x(constraint_count) = waypoints_[segment + 1].pos(0);
 		b_y(constraint_count) = waypoints_[segment + 1].pos(1);
 		b_z(constraint_count) = waypoints_[segment + 1].pos(2);
+		b_yaw(constraint_count) = waypoints_[segment + 1].yaw;
 		++constraint_count;
 	}
 

@@ -33,9 +33,10 @@ find_package(osqp REQUIRED)
 include_directories(inc)
 
 add_executable(offboard_controller
-src/offboard_controller.cpp
-src/controller.cpp
-src/min_snap_traj.cpp
+  src/offboard_controller.cpp
+  src/controller.cpp
+  src/min_snap_traj.cpp
+  src/polynomial.cpp
 )
 target_link_libraries(offboard_controller OsqpEigen::OsqpEigen osqp::osqp)
 ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs apriltag_msgs tf2 tf2_ros nav_msgs trajectory_msgs)

@@ -14,6 +14,6 @@ struct State
 	double az;
 
 	double yaw;
-	double yaw_rate;
+	double vyaw;
 
 };
