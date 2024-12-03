@@ -9,10 +9,23 @@ MinSnapTraj::MinSnapTraj():solved_(false), start_time_(0.0), end_time_(0.0)
 void MinSnapTraj::AddWaypoint(Waypoint new_waypoint)
 {
 	waypoints_.push_back(new_waypoint);
+	solved_ = false;
 }
+
+void MinSnapTraj::ClearWaypoints()
+{
+	waypoints_.clear();
+	solved_ = false;
+}
+
+double MinSnapTraj::EndTime()
+{
+	return times_.sum();
+}
+
 void MinSnapTraj::Evaluate(double time, State &state)
 {
-	assert(time >= 0.0 && time <= times_.sum());
+	assert(time >= 0.0 && time <= times_.sum() && solved_);
 	int segment = 0;
 	for (segment = 0; segment < num_segments_; ++segment)
 	{
@@ -194,7 +207,7 @@ bool MinSnapTraj::Solve(double average_speed)
 	}
 	
 	
-
+	solved_ = true;
 	return true;
 }
 void MinSnapTraj::CalculateTimes(double average_speed)

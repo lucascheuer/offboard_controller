@@ -42,28 +42,17 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
 	timer_ = this->create_wall_timer(10ms, std::bind(&OffboardController::PublishVehicleOdometry, this));
-	MinSnapTraj::Waypoint waypoint_one(Eigen::Vector3d(0, 0, 0), 0);
-	MinSnapTraj::Waypoint waypoint_two(Eigen::Vector3d(1, 0, 0), 0);
-	MinSnapTraj::Waypoint waypoint_three(Eigen::Vector3d(1, 1, 0), 0);
-	MinSnapTraj::Waypoint waypoint_four(Eigen::Vector3d(0, 1, 0), 0);
-	traj_.AddWaypoint(waypoint_one);
-	traj_.AddWaypoint(waypoint_two);
-	traj_.AddWaypoint(waypoint_three);
-	traj_.AddWaypoint(waypoint_four);
-	traj_.Solve(1.0);
 
 }
 
 void OffboardController::DeclareParameters()
 {
-	declare_parameter<std::vector<double>>("start_pos", {0.0, 0.0, -1.0});
-	declare_parameter<std::vector<double>>("start_vel", {0.0, 0.0, 0.0});
-	declare_parameter<std::vector<double>>("start_acc", {0.0, 0.0, 0.0});
-	declare_parameter<double>("start_yaw", 0.0);
-	declare_parameter<std::vector<double>>("end_pos", {0.0, 0.0, -1.0});
-	declare_parameter<std::vector<double>>("end_vel", {0.0, 0.0, 0.0});
-	declare_parameter<std::vector<double>>("end_acc", {0.0, 0.0, 0.0});
-	declare_parameter<double>("end_yaw", 0.0);
+	declare_parameter<bool>("min_snap", false);
+	declare_parameter<std::vector<double>>("x_points", {0.0, 0.0});
+	declare_parameter<std::vector<double>>("y_points", {0.0, 0.0});
+	declare_parameter<std::vector<double>>("z_points", {0.0, 0.0});
+	declare_parameter<std::vector<double>>("yaw_points", {0.0, 0.0});
+	declare_parameter<double>("speed", 1.0);
 }
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
@@ -91,27 +80,44 @@ void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 		yaw -= M_PI;
 	}
 	current_state_.yaw = yaw; // wrong, needs to be 
-	current_state_.yaw_rate = msg->angular_velocity[2]; // wrong frame? maybe?
+	current_state_.vyaw = msg->angular_velocity[2]; // wrong frame? maybe?
 }
 
 
 void OffboardController::PublishTrajectorySetpoint(double time)
 {
-	// node setup
-	std::vector<double> pos;
-	std::vector<double> vel;
-	std::vector<double> acc;
-	double yaw;
-	get_parameter("start_pos", pos);
-	get_parameter("start_vel", vel);
-	get_parameter("start_acc", acc);
-	get_parameter("start_yaw", yaw);
-
+	State state;
+	traj_.Evaluate(time, state);
+	// double  x_error = state.x  - current_state_.x;
+	// double vx_error = state.vx - current_state_.vx;
+	// double ax_error = state.ax - current_state_.ax;
+	RCLCPP_INFO(this->get_logger(), "des x: %3.2f, x: %3.2f, des vx: %3.2f, vx: %3.2f, des ax: %3.2f, ax: %3.2f", state.x, current_state_.x, state.vx, current_state_.vx, state.ax, current_state_.ax);
 	TrajectorySetpoint msg{};
-	msg.position = {float(pos[0]), float(pos[1]), float(pos[2])};
-	msg.velocity = {float(vel[0]), float(vel[1]), float(vel[2])};
-	msg.acceleration = {float(acc[0]), float(acc[1]), float(acc[2])};
-	msg.yaw = yaw;
+	msg.position = {float(state.x), float(state.y), float(state.z)};
+	msg.velocity = {float(state.vx), float(state.vy), float(state.vz)};
+	msg.acceleration = {float(state.ax), float(state.ay), float(state.az)};
+	msg.yaw = state.yaw;
+	msg.yawspeed = state.vyaw;
+	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
+	trajectory_setpoint_pub_->publish(msg);
+}
+
+void OffboardController::PublishTrajectorySetpointFromParam()
+{
+	// node setup
+	std::vector<double> x_points;
+	std::vector<double> y_points;
+	std::vector<double> z_points;
+	std::vector<double> yaw_points;
+	get_parameter("x_points", x_points);
+	get_parameter("y_points", y_points);
+	get_parameter("z_points", z_points);
+	get_parameter("yaw_points", yaw_points);
+	TrajectorySetpoint msg{};
+	msg.position = {float(x_points[0]), float(y_points[0]), float(z_points[0])};
+	msg.velocity = {0.0, 0.0, 0.0};
+	msg.acceleration = {0.0, 0.0, 0.0};
+	msg.yaw = float(yaw_points[0]);
 	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
 	trajectory_setpoint_pub_->publish(msg);
 }
@@ -171,8 +177,65 @@ void OffboardController::PublishVehicleOdometry()
 		odom.orientation_variance = {NAN, NAN, NAN};
 		odom.velocity_variance = {NAN, NAN, NAN};
 		visual_odometry_pub_->publish(odom);
+		bool min_snap;
+		get_parameter("min_snap", min_snap);
 		PublishModeCommands();
-		PublishTrajectorySetpoint(0.0);
+		if (min_snap)
+		{
+			
+			if (!traj_.solved())
+			{
+				std::vector<double> x_points;
+				std::vector<double> y_points;
+				std::vector<double> z_points;
+				std::vector<double> yaw_points;
+				double speed;
+				get_parameter("x_points", x_points);
+				get_parameter("y_points", y_points);
+				get_parameter("z_points", z_points);
+				get_parameter("yaw_points", yaw_points);
+				get_parameter("speed", speed);
+
+				traj_.ClearWaypoints();
+
+				for (int waypoint = 0; waypoint < int(x_points.size()); ++waypoint)
+				{
+					MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(x_points[waypoint], y_points[waypoint], z_points[waypoint]), yaw_points[waypoint]);
+					traj_.AddWaypoint(new_waypoint);
+				}
+				bool solved = traj_.Solve(speed);
+				if (!solved)
+				{
+					RCLCPP_INFO(this->get_logger(), "trajectory failed to solve");
+					min_snap = false;
+				}
+				traj_start_time_ = this->get_clock()->now().seconds();
+			}
+			double time_now = this->get_clock()->now().seconds();
+			if (time_now - traj_start_time_ > traj_.EndTime())
+			{
+				min_snap = false;
+			}
+			if (min_snap)
+			{
+				if (previous_traj_state_ != min_snap)
+				{
+					RCLCPP_INFO(this->get_logger(), "publishing min snap points");
+				}
+				PublishTrajectorySetpoint(this->get_clock()->now().seconds() - traj_start_time_);
+			} else
+			{
+				set_parameter(rclcpp::Parameter("min_snap", false));
+			}
+		} else
+		{
+			if (previous_traj_state_ != min_snap)
+			{
+				RCLCPP_INFO(this->get_logger(), "publishing normal points");
+			}
+			PublishTrajectorySetpointFromParam();
+		}
+		previous_traj_state_ = min_snap;
 	}
 }
 
@@ -275,8 +338,8 @@ void OffboardController::PublishOffboardControlMode()
 	OffboardControlMode msg{};
 	msg.position = true;
 	msg.attitude = false;
-	msg.velocity = false;
-	msg.acceleration = false;
+	msg.velocity = true;
+	msg.acceleration = true;
 	msg.body_rate = false;
 	msg.actuator = false;
 	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;

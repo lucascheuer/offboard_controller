@@ -21,8 +21,13 @@ public:
 	};
 	MinSnapTraj();
 	void AddWaypoint(Waypoint new_waypoint);
+	void ClearWaypoints();
 	bool Solve(double average_speed);
 	void Evaluate(double time, State &state);
+	double EndTime();
+
+	bool solved() { return solved_; }
+
 	
 private:
 	void CalculateTimes(double average_speed);

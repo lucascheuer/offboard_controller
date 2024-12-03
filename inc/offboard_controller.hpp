@@ -57,6 +57,9 @@ private:
 	State target_;
 	MinSnapTraj traj_;
 
+	double traj_start_time_;
+	double traj_end_time_;
+	bool previous_traj_state_;
 	Eigen::Quaterniond vehicle_orientation_;
 	Eigen::Vector3d vehicle_transform_;
 
@@ -69,6 +72,7 @@ private:
 	void PublishVehicleCommand(uint16_t command, float param1 = 0.0, float param2 = 0.0);
 	void PublishOffboardControlMode();
 	void PublishTrajectorySetpoint(double time);
+	void PublishTrajectorySetpointFromParam();
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 	// void PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4);
 
