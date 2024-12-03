@@ -16,6 +16,7 @@
   <depend>px4_ros_com</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>apriltag_msgs</depend>

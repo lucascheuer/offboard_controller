@@ -6,6 +6,9 @@
 #include "tf2_ros/buffer.h"
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
@@ -83,5 +86,11 @@ private:
 	void PublishModeCommands();
 	void PublishStaticTransforms();
 	void PublishVehicleTransforms(Eigen::Vector3d &vehicle_translation, Eigen::Quaterniond &vehicle_orientation);
+
+	// visualizations
+	void PublishNavPath();
+	rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr waypoint_publisher_;
+	rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr path_publisher_;
+
 	
 };

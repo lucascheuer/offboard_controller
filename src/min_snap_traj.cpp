@@ -23,6 +23,17 @@ double MinSnapTraj::EndTime()
 	return times_.sum();
 }
 
+bool MinSnapTraj::GetWaypoint(int waypoint_num, Waypoint &to_fill)
+{
+	if (waypoint_num > int(waypoints_.size()) || waypoint_num < 0)
+	{
+		return false;
+	}
+	to_fill.pos = waypoints_[waypoint_num].pos;
+	to_fill.yaw = waypoints_[waypoint_num].yaw;
+	return true;
+}
+
 void MinSnapTraj::Evaluate(double time, State &state)
 {
 	assert(time >= 0.0 && time <= times_.sum() && solved_);
@@ -38,8 +49,6 @@ void MinSnapTraj::Evaluate(double time, State &state)
 		}
 	}
 
-	std::cout << "In segment " << segment << std::endl;
-
 	state.x  = x_polys_[segment][0].Evaluate(time);
 	state.vx = x_polys_[segment][1].Evaluate(time);
 	state.ax = x_polys_[segment][2].Evaluate(time);
@@ -54,26 +63,18 @@ void MinSnapTraj::Evaluate(double time, State &state)
 
 	state.yaw  = yaw_polys_[segment][0].Evaluate(time);
 	state.vyaw = yaw_polys_[segment][1].Evaluate(time);
-
-	std::cout << "x:   " << state.x << std::endl;
-	std::cout << "y:   " << state.y << std::endl;
-	std::cout << "z:   " << state.z << std::endl;
-	std::cout << "yaw: " << state.yaw << std::endl;
 	
 }
 bool MinSnapTraj::Solve(double average_speed)
 {
-	std::cout << "solving" << std::endl;
 	num_segments_ = waypoints_.size() - 1;
 	num_internal_joints_ = waypoints_.size() - 2;
 	num_variables_ = kCoeffCount * num_segments_;
 	num_constraints_ = 2 * num_segments_ + 8 + 4 * num_internal_joints_;
 	times_.resize(num_segments_);
 	
-	std::cout << "calc time" << std::endl;
 	CalculateTimes(average_speed);
 	Eigen::MatrixXd time_powers;
-	std::cout << "calc powers" << std::endl;
 	CalculateTimePowers(time_powers);
 	Eigen::SparseMatrix<double> Q(num_variables_, num_variables_);
 
@@ -83,11 +84,8 @@ bool MinSnapTraj::Solve(double average_speed)
 	Eigen::VectorXd b_z(num_constraints_);
 	Eigen::VectorXd b_yaw(num_constraints_);
 	Eigen::VectorXd gradient = Eigen::VectorXd::Zero(num_variables_);
-	std::cout << "generate Q" << std::endl;
 	GenerateQ(time_powers, Q);
-	std::cout << "Q rows: " << Q.rows() << " Q cols: " << Q.cols() << std::endl;
 
-	std::cout << "Get constraints" << std::endl;
 	GenerateConstraints(time_powers, A, b_x, b_y, b_z, b_yaw);
 	// Eigen::IOFormat CleanFmt(4, 0, ", ", "\n", "[", "]");
 	// std::cout << "Q" << std::endl;
@@ -171,10 +169,8 @@ bool MinSnapTraj::Solve(double average_speed)
 	Eigen::VectorXd yaw_coeffs = solver_.getSolution();
 
 	// assign polynomials and derivatives
-	std::cout << "x coeffs: " << std::endl << x_coeffs <<std::endl <<std::endl;
 	for (int segment = 0; segment < num_segments_; ++segment)
 	{
-		std::cout << "segment " << segment << ":" << std::endl;
 		std::vector<Polynomial> segment_x_polys;
 		std::vector<Polynomial> segment_y_polys;
 		std::vector<Polynomial> segment_z_polys;
@@ -183,22 +179,12 @@ bool MinSnapTraj::Solve(double average_speed)
 		segment_y_polys.push_back(Polynomial(y_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
 		segment_z_polys.push_back(Polynomial(z_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
 		segment_yaw_polys.push_back(Polynomial(yaw_coeffs.segment(segment * kCoeffCount, kCoeffCount)));
-		std::cout << "x:   " << segment_x_polys.back() << std::endl;
-		std::cout << "y:   " << segment_y_polys.back() << std::endl;
-		std::cout << "z:   " << segment_z_polys.back() << std::endl;
-		std::cout << "yaw: " << segment_yaw_polys.back() << std::endl;
-		std::cout << std::endl << std::endl;
 		for (int derivative = 1; derivative < 3; ++derivative)
 		{
 			segment_x_polys.push_back(segment_x_polys.back().Derivative());
 			segment_y_polys.push_back(segment_y_polys.back().Derivative());
 			segment_z_polys.push_back(segment_z_polys.back().Derivative());
 			segment_yaw_polys.push_back(segment_yaw_polys.back().Derivative());
-			std::cout << "x derivative " << derivative << ": " << segment_x_polys.back() << std::endl;
-			std::cout << "y derivative " << derivative << ": " << segment_y_polys.back() << std::endl;
-			std::cout << "z derivative " << derivative << ": " << segment_z_polys.back() << std::endl;
-			std::cout << "yaw  derivat " << derivative << ": " << segment_yaw_polys.back() << std::endl;
-			std::cout << std::endl << std::endl;
 		}
 		x_polys_.push_back(segment_x_polys);
 		y_polys_.push_back(segment_y_polys);

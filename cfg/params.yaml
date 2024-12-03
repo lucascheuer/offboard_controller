@@ -3,6 +3,6 @@ offboard_controller:
     min_snap: False
     x_points: [0.0, 1.0, 0.0, 0.0]
     y_points: [0.0, 0.0, 1.0, 0.0]
-    z_points: [-3.0, -3.0, -3.0, -3.0]
+    z_points: [3.0, 3.0, 3.0, 3.0]
     yaw_angles: [0.0, 0.0, 0.0, 0.0]
     speed: 0.1

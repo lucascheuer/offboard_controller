@@ -6,6 +6,7 @@
 #include <iostream>
 #include <px4_ros_com/frame_transforms.h>
 
+
 #include "offboard_controller.hpp"
 // #include <tf2/LinearMath/Quaternion.h>
 
@@ -35,7 +36,8 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
 	visual_odometry_pub_ = this->create_publisher<VehicleOdometry>("/px4_1/fmu/in/vehicle_visual_odometry", 10);
 	attitude_setpoint_pub_ = this->create_publisher<VehicleAttitudeSetpoint>("/px4_1/fmu/in/vehicle_attitude_setpoint", 10);
-
+	waypoint_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/waypoints", 10);
+	path_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/path", 10);
 	// tf stuff
 	tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
 	tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -93,9 +95,9 @@ void OffboardController::PublishTrajectorySetpoint(double time)
 	// double ax_error = state.ax - current_state_.ax;
 	RCLCPP_INFO(this->get_logger(), "des x: %3.2f, x: %3.2f, des vx: %3.2f, vx: %3.2f, des ax: %3.2f, ax: %3.2f", state.x, current_state_.x, state.vx, current_state_.vx, state.ax, current_state_.ax);
 	TrajectorySetpoint msg{};
-	msg.position = {float(state.x), float(state.y), float(state.z)};
-	msg.velocity = {float(state.vx), float(state.vy), float(state.vz)};
-	msg.acceleration = {float(state.ax), float(state.ay), float(state.az)};
+	msg.position = {float(state.x), float(-state.y), float(-state.z)};
+	msg.velocity = {float(state.vx), float(-state.vy), float(-state.vz)};
+	msg.acceleration = {float(state.ax), float(-state.ay), float(-state.az)};
 	msg.yaw = state.yaw;
 	msg.yawspeed = state.vyaw;
 	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
@@ -114,7 +116,7 @@ void OffboardController::PublishTrajectorySetpointFromParam()
 	get_parameter("z_points", z_points);
 	get_parameter("yaw_points", yaw_points);
 	TrajectorySetpoint msg{};
-	msg.position = {float(x_points[0]), float(y_points[0]), float(z_points[0])};
+	msg.position = {float(x_points[0]), float(-y_points[0]), float(-z_points[0])};
 	msg.velocity = {0.0, 0.0, 0.0};
 	msg.acceleration = {0.0, 0.0, 0.0};
 	msg.yaw = float(yaw_points[0]);
@@ -236,6 +238,7 @@ void OffboardController::PublishVehicleOdometry()
 			PublishTrajectorySetpointFromParam();
 		}
 		previous_traj_state_ = min_snap;
+		PublishNavPath();
 	}
 }
 
@@ -344,6 +347,77 @@ void OffboardController::PublishOffboardControlMode()
 	msg.actuator = false;
 	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
 	offboard_control_mode_pub_->publish(msg);
+}
+
+void OffboardController::PublishNavPath()
+{
+	// waypoints
+	std::vector<double> x_points;
+	std::vector<double> y_points;
+	std::vector<double> z_points;
+	get_parameter("x_points", x_points);
+	get_parameter("y_points", y_points);
+	get_parameter("z_points", z_points);
+	visualization_msgs::msg::Marker waypoints;
+    waypoints.header.frame_id = "map";
+    waypoints.header.stamp = this->get_clock()->now();
+    waypoints.ns = "current";
+    waypoints.id = 0;
+    waypoints.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    waypoints.action = visualization_msgs::msg::Marker::ADD;
+    waypoints.pose.orientation.x = 0.0;
+    waypoints.pose.orientation.y = 0.0;
+    waypoints.pose.orientation.z = 0.0;
+    waypoints.pose.orientation.w = 1.0;
+    waypoints.scale.x = 0.1;
+    waypoints.scale.y = 0.1;
+    waypoints.scale.z = 0.1;
+    waypoints.color.a = 1.0; // Don't forget to set the alpha!
+    waypoints.color.r = 1.0;
+    waypoints.color.g = 0.0;
+    waypoints.color.b = 0.0;
+
+	for (int waypoint = 0; waypoint < int(x_points.size()); ++waypoint)
+	{
+		geometry_msgs::msg::Point new_waypoint;
+		new_waypoint.x = x_points[waypoint];
+		new_waypoint.y = y_points[waypoint];
+		new_waypoint.z = z_points[waypoint];
+		waypoints.points.push_back(new_waypoint);
+	}
+	waypoint_publisher_->publish(waypoints);
+	// path
+	if (traj_.solved())
+	{
+		waypoints.header.stamp = this->get_clock()->now();
+		waypoints.type = visualization_msgs::msg::Marker::LINE_LIST;
+		waypoints.id = 1;
+		waypoints.points.clear();
+		waypoints.scale.x = 0.01;
+		waypoints.scale.y = 0.01;
+		waypoints.scale.z = 0.01;
+		waypoints.color.a = 1.0; // Don't forget to set the alpha!
+		waypoints.color.r = 0.0;
+		waypoints.color.g = 0.0;
+		waypoints.color.b = 1.0;
+		double time_step = traj_.EndTime() / 100;
+		State state;
+		geometry_msgs::msg::Point new_path;
+		traj_.Evaluate(0.0, state);
+		for (double time = time_step; time < traj_.EndTime(); time += time_step)
+		{
+			new_path.x = state.x;
+			new_path.y = state.y;
+			new_path.z = state.z;
+			waypoints.points.push_back(new_path);
+			traj_.Evaluate(time, state);
+			new_path.x = state.x;
+			new_path.y = state.y;
+			new_path.z = state.z;
+			waypoints.points.push_back(new_path);
+		}
+		path_publisher_->publish(waypoints);
+	}
 }
 
 int main(int argc, char *argv[])

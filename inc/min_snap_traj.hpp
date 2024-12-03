@@ -12,6 +12,8 @@ class MinSnapTraj
 public:
 	struct Waypoint
 	{
+		Waypoint(): pos(Eigen::Vector3d::Zero()), yaw(0.0)
+		{};
 		Waypoint(Eigen::Vector3d pos, double yaw): pos(pos), yaw(yaw)
 		{
 
@@ -25,7 +27,8 @@ public:
 	bool Solve(double average_speed);
 	void Evaluate(double time, State &state);
 	double EndTime();
-
+	bool GetWaypoint(int waypoint_num, Waypoint &to_fill);
+	int GetWaypointCount() { return int(waypoints_.size()); }
 	bool solved() { return solved_; }
 
 	
