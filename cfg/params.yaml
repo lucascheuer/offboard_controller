@@ -1,8 +1,8 @@
 offboard_controller:
   ros__parameters:
     min_snap: False
-    x_points: [0.0, 1.0, 0.0, 0.0]
-    y_points: [0.0, 0.0, 1.0, 0.0]
-    z_points: [3.0, 3.0, 3.0, 3.0]
-    yaw_angles: [0.0, 0.0, 0.0, 0.0]
-    speed: 0.1
+    x_points: [0.0, 3.0, 2.0, 4.0, 0.0]
+    y_points: [0.0, 3.0, 2.0, 4.0, 0.0]
+    z_points: [3.0, 4.0, 2.0, 5.0, 3.0]
+    yaw_angles: [3.14159, 0.0, 0.0, 3.14159, 0.0]
+    speed: 0.5

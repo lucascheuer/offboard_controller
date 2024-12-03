@@ -93,7 +93,7 @@ void OffboardController::PublishTrajectorySetpoint(double time)
 	// double  x_error = state.x  - current_state_.x;
 	// double vx_error = state.vx - current_state_.vx;
 	// double ax_error = state.ax - current_state_.ax;
-	RCLCPP_INFO(this->get_logger(), "des x: %3.2f, x: %3.2f, des vx: %3.2f, vx: %3.2f, des ax: %3.2f, ax: %3.2f", state.x, current_state_.x, state.vx, current_state_.vx, state.ax, current_state_.ax);
+	// RCLCPP_INFO(this->get_logger(), "des x: %3.2f, x: %3.2f, des vx: %3.2f, vx: %3.2f, des ax: %3.2f, ax: %3.2f", state.x, current_state_.x, state.vx, current_state_.vx, state.ax, current_state_.ax);
 	TrajectorySetpoint msg{};
 	msg.position = {float(state.x), float(-state.y), float(-state.z)};
 	msg.velocity = {float(state.vx), float(-state.vy), float(-state.vz)};
@@ -181,6 +181,13 @@ void OffboardController::PublishVehicleOdometry()
 		visual_odometry_pub_->publish(odom);
 		bool min_snap;
 		get_parameter("min_snap", min_snap);
+		if (min_snap)
+		{
+			RCLCPP_INFO(this->get_logger(), "Min snap: true");
+		} else
+		{
+			RCLCPP_INFO(this->get_logger(), "Min snap: false");
+		}
 		PublishModeCommands();
 		if (min_snap)
 		{
@@ -216,25 +223,28 @@ void OffboardController::PublishVehicleOdometry()
 			double time_now = this->get_clock()->now().seconds();
 			if (time_now - traj_start_time_ > traj_.EndTime())
 			{
+				RCLCPP_INFO(this->get_logger(), "Clearing waypoints");
 				min_snap = false;
+				traj_.ClearWaypoints();
 			}
 			if (min_snap)
 			{
-				if (previous_traj_state_ != min_snap)
-				{
+				// if (previous_traj_state_ != min_snap)
+				// {
 					RCLCPP_INFO(this->get_logger(), "publishing min snap points");
-				}
+				// }
 				PublishTrajectorySetpoint(this->get_clock()->now().seconds() - traj_start_time_);
 			} else
 			{
+				RCLCPP_INFO(this->get_logger(), "Clearing min snap parameter");
 				set_parameter(rclcpp::Parameter("min_snap", false));
 			}
 		} else
 		{
-			if (previous_traj_state_ != min_snap)
-			{
+			// if (previous_traj_state_ != min_snap)
+			// {
 				RCLCPP_INFO(this->get_logger(), "publishing normal points");
-			}
+			// }
 			PublishTrajectorySetpointFromParam();
 		}
 		previous_traj_state_ = min_snap;

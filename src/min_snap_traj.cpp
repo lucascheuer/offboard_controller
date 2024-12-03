@@ -36,7 +36,9 @@ bool MinSnapTraj::GetWaypoint(int waypoint_num, Waypoint &to_fill)
 
 void MinSnapTraj::Evaluate(double time, State &state)
 {
-	assert(time >= 0.0 && time <= times_.sum() && solved_);
+	assert(time >= 0.0);
+	assert(time <= times_.sum());
+	assert(solved_);
 	int segment = 0;
 	for (segment = 0; segment < num_segments_; ++segment)
 	{
@@ -71,7 +73,7 @@ bool MinSnapTraj::Solve(double average_speed)
 	num_internal_joints_ = waypoints_.size() - 2;
 	num_variables_ = kCoeffCount * num_segments_;
 	num_constraints_ = 2 * num_segments_ + 8 + 4 * num_internal_joints_;
-	times_.resize(num_segments_);
+	times_ = Eigen::VectorXd::Zero(num_segments_);
 	
 	CalculateTimes(average_speed);
 	Eigen::MatrixXd time_powers;
@@ -100,6 +102,11 @@ bool MinSnapTraj::Solve(double average_speed)
 	// std::cout << b_z << std::endl << std::endl;
 
 	// initialize the solver
+	
+	solver_.data()->clearHessianMatrix();
+	solver_.data()->clearLinearConstraintsMatrix();
+	solver_.clearSolver();
+	solver_.clearSolverVariables();
 	solver_.settings()->setWarmStart(false);
 	solver_.settings()->setVerbosity(false);
 	solver_.data()->setNumberOfVariables(num_variables_);
@@ -169,6 +176,10 @@ bool MinSnapTraj::Solve(double average_speed)
 	Eigen::VectorXd yaw_coeffs = solver_.getSolution();
 
 	// assign polynomials and derivatives
+	x_polys_.clear();
+	y_polys_.clear();
+	z_polys_.clear();
+	yaw_polys_.clear();
 	for (int segment = 0; segment < num_segments_; ++segment)
 	{
 		std::vector<Polynomial> segment_x_polys;

@@ -59,6 +59,7 @@ private:
 	Eigen::VectorXd times_;
 
 	OsqpEigen::Solver solver_;
+	bool solver_init_;
 
 	std::vector<Waypoint> waypoints_;
 	std::vector<std::vector<Polynomial>> x_polys_;
