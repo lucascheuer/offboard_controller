@@ -1,7 +1,7 @@
 #include "min_snap_traj.hpp"
 #include <iostream>
 
-MinSnapTraj::MinSnapTraj():solved_(false), start_time_(0.0), end_time_(0.0)
+MinSnapTraj::MinSnapTraj():solved_(false), start_time_(0.0), end_time_(0.0), first_time_(true)
 {
 
 }
@@ -32,6 +32,17 @@ bool MinSnapTraj::GetWaypoint(int waypoint_num, Waypoint &to_fill)
 	to_fill.pos = waypoints_[waypoint_num].pos;
 	to_fill.yaw = waypoints_[waypoint_num].yaw;
 	return true;
+}
+
+MinSnapTraj::Waypoint * MinSnapTraj::GetWaypoint(int waypoint_num)
+{
+	if (waypoint_num >= int(waypoints_.size()) || waypoint_num < 0)
+	{
+		return nullptr;
+	}
+	return &waypoints_[waypoint_num];
+	// to_fill.pos = waypoints_[waypoint_num].pos;
+	// to_fill.yaw = waypoints_[waypoint_num].yaw;
 }
 
 void MinSnapTraj::Evaluate(double time, State &state)
@@ -102,11 +113,17 @@ bool MinSnapTraj::Solve(double average_speed)
 	// std::cout << b_z << std::endl << std::endl;
 
 	// initialize the solver
-	
-	solver_.data()->clearHessianMatrix();
-	solver_.data()->clearLinearConstraintsMatrix();
-	solver_.clearSolver();
-	solver_.clearSolverVariables();
+	if (!first_time_)
+	{
+		solver_.data()->clearHessianMatrix();
+		solver_.data()->clearLinearConstraintsMatrix();
+		solver_.clearSolverVariables();
+		solver_.clearSolver();
+		
+	} else
+	{
+		first_time_ = false;
+	}
 	solver_.settings()->setWarmStart(false);
 	solver_.settings()->setVerbosity(false);
 	solver_.data()->setNumberOfVariables(num_variables_);

@@ -28,6 +28,7 @@ OffboardController::OffboardController() : Node("offboard_controller")
 
 	// subs
 	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
+	waypoint_array_sub_ = create_subscription<geometry_msgs::msg::PoseArray>("/min_snap/path", qos, std::bind(&OffboardController::WaypointUpdateCallback, this, _1));
 	// attitude_sub_ = this->create_subscription<VehicleAttitude>("/px4_1/fmu/out/vehicle_attitude", qos, std::bind(&OffboardController::AttitudeCallback, this, _1));
 	// april_tag_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>("/apriltag/detections", qos, std::bind(&OffboardController::TagCallback, this, _1));
 	// pubs
@@ -36,8 +37,8 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	trajectory_setpoint_pub_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
 	visual_odometry_pub_ = this->create_publisher<VehicleOdometry>("/px4_1/fmu/in/vehicle_visual_odometry", 10);
 	attitude_setpoint_pub_ = this->create_publisher<VehicleAttitudeSetpoint>("/px4_1/fmu/in/vehicle_attitude_setpoint", 10);
-	waypoint_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/waypoints", 10);
-	path_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/path", 10);
+	waypoint_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/waypoints_visualization", 10);
+	path_vis_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/min_snap/path_visualization", 10);
 	// tf stuff
 	tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
 	tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -50,11 +51,8 @@ OffboardController::OffboardController() : Node("offboard_controller")
 void OffboardController::DeclareParameters()
 {
 	declare_parameter<bool>("min_snap", false);
-	declare_parameter<std::vector<double>>("x_points", {0.0, 0.0});
-	declare_parameter<std::vector<double>>("y_points", {0.0, 0.0});
-	declare_parameter<std::vector<double>>("z_points", {0.0, 0.0});
-	declare_parameter<std::vector<double>>("yaw_points", {0.0, 0.0});
 	declare_parameter<double>("speed", 1.0);
+	declare_parameter<double>("cooldown", 0.5);
 }
 void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 {
@@ -64,6 +62,12 @@ void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 	vehicle_transform_ = vehicle_translation;
 	vehicle_orientation_ = vehicle_orientation;
 	PublishVehicleTransforms(vehicle_translation, vehicle_orientation);
+	double cooldown;
+	get_parameter("cooldown", cooldown);
+	if(get_clock()->now().seconds() - last_traj_update_ > cooldown && !traj_executing_)
+	{
+		UpdateMinSnapTrajEndPoints();
+	}
 	current_state_.x = msg->position[1];
 	current_state_.y = msg->position[0];
 	current_state_.z = -msg->position[2];
@@ -85,6 +89,38 @@ void OffboardController::OdomCallback(const VehicleOdometry::SharedPtr msg)
 	current_state_.vyaw = msg->angular_velocity[2]; // wrong frame? maybe?
 }
 
+void OffboardController::WaypointUpdateCallback(const geometry_msgs::msg::PoseArray poses)
+{
+	if (!traj_executing_)
+	{
+		traj_.ClearWaypoints();
+		for (int waypoint = 0; waypoint < int(poses.poses.size()); ++waypoint)
+		{
+			MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(poses.poses[waypoint].position.x, poses.poses[waypoint].position.y, poses.poses[waypoint].position.z), 0);
+			traj_.AddWaypoint(new_waypoint);
+		}
+		MinSnapTraj::Waypoint last_waypoint(Eigen::Vector3d(poses.poses[0].position.x, poses.poses[0].position.y, poses.poses[0].position.z), 0);
+		traj_.AddWaypoint(last_waypoint);
+	}
+}
+
+void OffboardController::UpdateMinSnapTrajEndPoints()
+{	
+	double speed;
+	get_parameter("speed", speed);
+	bool solved = traj_.Solve(speed);
+	if (solved && traj_.solved())
+	{
+		last_traj_update_ = get_clock()->now().seconds();
+
+	}
+	if (!solved )
+	{
+		RCLCPP_INFO(this->get_logger(), "trajectory failed to solve");
+	}
+	
+}
+
 
 void OffboardController::PublishTrajectorySetpoint(double time)
 {
@@ -104,24 +140,25 @@ void OffboardController::PublishTrajectorySetpoint(double time)
 	trajectory_setpoint_pub_->publish(msg);
 }
 
-void OffboardController::PublishTrajectorySetpointFromParam()
+void OffboardController::PublishTrajectorySetpoint()
 {
 	// node setup
-	std::vector<double> x_points;
-	std::vector<double> y_points;
-	std::vector<double> z_points;
-	std::vector<double> yaw_points;
-	get_parameter("x_points", x_points);
-	get_parameter("y_points", y_points);
-	get_parameter("z_points", z_points);
-	get_parameter("yaw_points", yaw_points);
-	TrajectorySetpoint msg{};
-	msg.position = {float(x_points[0]), float(-y_points[0]), float(-z_points[0])};
-	msg.velocity = {0.0, 0.0, 0.0};
-	msg.acceleration = {0.0, 0.0, 0.0};
-	msg.yaw = float(yaw_points[0]);
-	msg.timestamp = this->get_clock()->now().seconds() * 1000000;
-	trajectory_setpoint_pub_->publish(msg);
+	MinSnapTraj::Waypoint *waypoint = traj_.GetWaypoint(0);
+	if(waypoint != nullptr)
+	{
+		TrajectorySetpoint msg{};
+		msg.position = {float(waypoint->pos[0]), float(-waypoint->pos[1]), float(-waypoint->pos[2])};
+		msg.velocity = {0.0, 0.0, 0.0};
+		msg.acceleration = {0.0, 0.0, 0.0};
+		msg.yaw = float(0.0);
+		msg.timestamp = this->get_clock()->now().seconds() * 1000000;
+		trajectory_setpoint_pub_->publish(msg);
+	} else
+	{
+		RCLCPP_INFO(this->get_logger(), "Waypoint nullptr");
+	}
+	
+	
 }
 
 // void OffboardController::PublishAttitudeSetpoint(Eigen::Quaterniond &target_quaternion_px4, Eigen::Vector3d &target_thrust_px4)
@@ -181,71 +218,52 @@ void OffboardController::PublishVehicleOdometry()
 		visual_odometry_pub_->publish(odom);
 		bool min_snap;
 		get_parameter("min_snap", min_snap);
-		if (min_snap)
-		{
-			RCLCPP_INFO(this->get_logger(), "Min snap: true");
-		} else
-		{
-			RCLCPP_INFO(this->get_logger(), "Min snap: false");
-		}
 		PublishModeCommands();
 		if (min_snap)
 		{
 			
 			if (!traj_.solved())
 			{
-				std::vector<double> x_points;
-				std::vector<double> y_points;
-				std::vector<double> z_points;
-				std::vector<double> yaw_points;
 				double speed;
-				get_parameter("x_points", x_points);
-				get_parameter("y_points", y_points);
-				get_parameter("z_points", z_points);
-				get_parameter("yaw_points", yaw_points);
 				get_parameter("speed", speed);
-
-				traj_.ClearWaypoints();
-
-				for (int waypoint = 0; waypoint < int(x_points.size()); ++waypoint)
-				{
-					MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(x_points[waypoint], y_points[waypoint], z_points[waypoint]), yaw_points[waypoint]);
-					traj_.AddWaypoint(new_waypoint);
-				}
 				bool solved = traj_.Solve(speed);
 				if (!solved)
 				{
 					RCLCPP_INFO(this->get_logger(), "trajectory failed to solve");
 					min_snap = false;
 				}
+				
+			}
+			if (!traj_executing_)
+			{
+				traj_executing_ = true;
 				traj_start_time_ = this->get_clock()->now().seconds();
 			}
 			double time_now = this->get_clock()->now().seconds();
 			if (time_now - traj_start_time_ > traj_.EndTime())
 			{
-				RCLCPP_INFO(this->get_logger(), "Clearing waypoints");
 				min_snap = false;
-				traj_.ClearWaypoints();
 			}
 			if (min_snap)
 			{
-				// if (previous_traj_state_ != min_snap)
-				// {
+				if (previous_traj_state_ != min_snap)
+				{
 					RCLCPP_INFO(this->get_logger(), "publishing min snap points");
-				// }
+				}
 				PublishTrajectorySetpoint(this->get_clock()->now().seconds() - traj_start_time_);
 			} else
 			{
 				RCLCPP_INFO(this->get_logger(), "Clearing min snap parameter");
 				set_parameter(rclcpp::Parameter("min_snap", false));
+				traj_executing_ = false;
 			}
 		} else
 		{
-			// if (previous_traj_state_ != min_snap)
-			// {
+			if (previous_traj_state_ != min_snap)
+			{
 				RCLCPP_INFO(this->get_logger(), "publishing normal points");
-			// }
-			PublishTrajectorySetpointFromParam();
+			}
+			PublishTrajectorySetpoint();
 		}
 		previous_traj_state_ = min_snap;
 		PublishNavPath();
@@ -362,40 +380,36 @@ void OffboardController::PublishOffboardControlMode()
 void OffboardController::PublishNavPath()
 {
 	// waypoints
-	std::vector<double> x_points;
-	std::vector<double> y_points;
-	std::vector<double> z_points;
-	get_parameter("x_points", x_points);
-	get_parameter("y_points", y_points);
-	get_parameter("z_points", z_points);
 	visualization_msgs::msg::Marker waypoints;
     waypoints.header.frame_id = "map";
     waypoints.header.stamp = this->get_clock()->now();
     waypoints.ns = "current";
-    waypoints.id = 0;
-    waypoints.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    // waypoints.id = 0;
+    // waypoints.type = visualization_msgs::msg::Marker::SPHERE_LIST;
     waypoints.action = visualization_msgs::msg::Marker::ADD;
     waypoints.pose.orientation.x = 0.0;
     waypoints.pose.orientation.y = 0.0;
     waypoints.pose.orientation.z = 0.0;
     waypoints.pose.orientation.w = 1.0;
-    waypoints.scale.x = 0.1;
-    waypoints.scale.y = 0.1;
-    waypoints.scale.z = 0.1;
-    waypoints.color.a = 1.0; // Don't forget to set the alpha!
-    waypoints.color.r = 1.0;
-    waypoints.color.g = 0.0;
-    waypoints.color.b = 0.0;
+    // waypoints.scale.x = 0.1;
+    // waypoints.scale.y = 0.1;
+    // waypoints.scale.z = 0.1;
+    // waypoints.color.a = 1.0; // Don't forget to set the alpha!
+    // waypoints.color.r = 1.0;
+    // waypoints.color.g = 0.0;
+    // waypoints.color.b = 0.0;
 
-	for (int waypoint = 0; waypoint < int(x_points.size()); ++waypoint)
-	{
-		geometry_msgs::msg::Point new_waypoint;
-		new_waypoint.x = x_points[waypoint];
-		new_waypoint.y = y_points[waypoint];
-		new_waypoint.z = z_points[waypoint];
-		waypoints.points.push_back(new_waypoint);
-	}
-	waypoint_publisher_->publish(waypoints);
+	// for (int waypoint_num = 0; waypoint_num < traj_.GetWaypointCount(); ++waypoint_num)
+	// {
+	// 	MinSnapTraj::Waypoint waypoint;
+	// 	traj_.GetWaypoint(waypoint_num, waypoint);
+	// 	geometry_msgs::msg::Point new_waypoint;
+	// 	new_waypoint.x = waypoint.pos[0];
+	// 	new_waypoint.y = waypoint.pos[1];
+	// 	new_waypoint.z = waypoint.pos[2];
+	// 	waypoints.points.push_back(new_waypoint);
+	// }
+	// waypoint_publisher_->publish(waypoints);
 	// path
 	if (traj_.solved())
 	{
@@ -426,7 +440,7 @@ void OffboardController::PublishNavPath()
 			new_path.z = state.z;
 			waypoints.points.push_back(new_path);
 		}
-		path_publisher_->publish(waypoints);
+		path_vis_publisher_->publish(waypoints);
 	}
 }
 

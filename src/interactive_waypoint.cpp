@@ -11,6 +11,8 @@ InteractiveWaypointManager::InteractiveWaypointManager() : Node("interactive_way
 		get_node_services_interface()
 	);
 
+	waypoint_array_pub_ = create_publisher<geometry_msgs::msg::PoseArray>("/min_snap/path", 10);
+	// menu_handler_.insert("Execute Path", std::bind(&InteractiveWaypointManager::ExecutePath, this));
 	menu_handler_.insert("Add new waypoint", std::bind(&InteractiveWaypointManager::AddWaypoint, this));
 	menu_handler_.insert("Remove This Waypoint", std::bind(&InteractiveWaypointManager::RemoveWaypoint, this, _1));
 	// interactive_markers::MenuHandler::EntryHandle sub_menu_handle = menu_handler_.insert("Delete");
@@ -19,19 +21,45 @@ InteractiveWaypointManager::InteractiveWaypointManager() : Node("interactive_way
 
 void InteractiveWaypointManager::UpdateCallback()
 {
+	SendWaypoints();
 	server_->applyChanges();
 }
 
 void InteractiveWaypointManager::InteractionCallback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &interaction)
 {
+
+	switch (interaction->event_type)
+	{
+		case visualization_msgs::msg::InteractiveMarkerFeedback::POSE_UPDATE:
+			SendWaypoints();
+			break;
+		default:
+			break;
+	}
 	server_->applyChanges();
-	// switch (interaction->event_type)
-	// {
-	// 	case visualization_msgs::msg::InteractiveMarkerFeedback::MENU_SELECT:
-	// 		break;
-	// 	case default:
-	// 		break;
-	// }
+	
+}
+
+void InteractiveWaypointManager::SendWaypoints()
+{
+	geometry_msgs::msg::PoseArray waypoints;
+	
+	waypoints.header.frame_id = "map";
+	visualization_msgs::msg::InteractiveMarker marker;
+	
+	int waypoint_count = int(server_->size());
+	for (int current_waypoint_number = 0; current_waypoint_number < waypoint_count; ++current_waypoint_number)
+	{
+		if (server_->get("Waypoint " + std::to_string(current_waypoint_number), marker))
+		{
+			waypoints.poses.push_back(marker.pose);
+		} else
+		{
+			break;
+		}
+	}
+	waypoints.header.stamp = this->get_clock()->now();
+	waypoint_array_pub_->publish(waypoints);
 }
 
 void InteractiveWaypointManager::AddWaypoint()

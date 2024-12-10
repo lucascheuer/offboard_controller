@@ -28,6 +28,8 @@ public:
 	void Evaluate(double time, State &state);
 	double EndTime();
 	bool GetWaypoint(int waypoint_num, Waypoint &to_fill);
+	Waypoint * GetWaypoint(int waypoint_num);
+
 	int GetWaypointCount() { return int(waypoints_.size()); }
 	bool solved() { return solved_; }
 
@@ -43,6 +45,7 @@ private:
 	void CalculatePolyDerivativeMultipliers(const int coeff_count, const int derivative_count, const Eigen::VectorXd &time_powers_row, Eigen::RowVectorXd &polynomial_derivative);
 
 	bool solved_;
+	bool first_time_;
 	double start_time_;
 	double end_time_;
 

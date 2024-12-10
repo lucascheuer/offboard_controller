@@ -16,6 +16,7 @@
 #include <visualization_msgs/msg/interactive_marker_control.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 
 class InteractiveWaypointManager : public rclcpp::Node
 {
@@ -31,9 +32,12 @@ private:
 	void InteractionCallback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &interaction);
 	void UpdateCallback();
 	void RemoveWaypoint(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &interaction);
-	
+
+	void SendWaypoints();
 
 	std::unique_ptr<interactive_markers::InteractiveMarkerServer> server_;
 	interactive_markers::MenuHandler menu_handler_;
 	rclcpp::TimerBase::SharedPtr interaction_framerate_timer_;
+
+	rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr waypoint_array_pub_;
 };

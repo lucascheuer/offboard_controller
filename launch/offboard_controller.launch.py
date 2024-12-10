@@ -20,6 +20,11 @@ def generate_launch_description():
             'params.yaml'
             )]
     )
+    interactive_waypoints = Node(
+        package='offboard_controller',
+        executable='interactive_waypoint',
+        name='interactive_waypoint',
+    )
     rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -88,6 +93,7 @@ def generate_launch_description():
     # gz_sim = 
     return LaunchDescription([
         offboard_controller,
+        interactive_waypoints,
         rviz,
         bridge,
         # apriltag,
