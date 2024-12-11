@@ -12,7 +12,8 @@ InteractiveWaypointManager::InteractiveWaypointManager() : Node("interactive_way
 	);
 
 	waypoint_array_pub_ = create_publisher<geometry_msgs::msg::PoseArray>("/min_snap/path", 10);
-	// menu_handler_.insert("Execute Path", std::bind(&InteractiveWaypointManager::ExecutePath, this));
+	execute_pub_ = create_publisher<std_msgs::msg::Bool>("/min_snap/execute", 10);
+	menu_handler_.insert("Execute Path", std::bind(&InteractiveWaypointManager::ExecutePath, this));
 	menu_handler_.insert("Add new waypoint", std::bind(&InteractiveWaypointManager::AddWaypoint, this));
 	menu_handler_.insert("Remove This Waypoint", std::bind(&InteractiveWaypointManager::RemoveWaypoint, this, _1));
 	// interactive_markers::MenuHandler::EntryHandle sub_menu_handle = menu_handler_.insert("Delete");
@@ -62,6 +63,13 @@ void InteractiveWaypointManager::SendWaypoints()
 	waypoint_array_pub_->publish(waypoints);
 }
 
+void InteractiveWaypointManager::ExecutePath()
+{
+	std_msgs::msg::Bool execute;
+	execute.data = true;
+	execute_pub_->publish(execute);
+}
+
 void InteractiveWaypointManager::AddWaypoint()
 {
 	RCLCPP_INFO(get_logger(), "adding a new waypoint");
@@ -103,6 +111,9 @@ void InteractiveWaypointManager::AddWaypoint()
 	arrow_orientation = tf2::Quaternion(0.0, 1.0, 0.0, 1.0);
 	arrow_orientation.normalize();
 	arrow_control.orientation = tf2::toMsg(arrow_orientation);
+	arrow_control.name = "rotate_z";
+    arrow_control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::ROTATE_AXIS;
+    marker.controls.push_back(arrow_control);
 	arrow_control.name = "move_z";
 	arrow_control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::MOVE_AXIS;
 	marker.controls.push_back(arrow_control);

@@ -16,9 +16,9 @@ find_package(builtin_interfaces REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(apriltag_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -43,13 +43,13 @@ add_executable(offboard_controller
 )
 
 target_link_libraries(offboard_controller OsqpEigen::OsqpEigen osqp::osqp)
-ament_target_dependencies(offboard_controller rclcpp px4_msgs Eigen3 px4_ros_com geometry_msgs apriltag_msgs tf2 tf2_ros visualization_msgs interactive_markers nav_msgs trajectory_msgs)
+ament_target_dependencies(offboard_controller rclcpp std_msgs px4_msgs Eigen3 px4_ros_com geometry_msgs apriltag_msgs tf2 tf2_ros visualization_msgs interactive_markers nav_msgs trajectory_msgs)
 install(TARGETS offboard_controller DESTINATION lib/${PROJECT_NAME})
 
 add_executable(interactive_waypoint
   src/interactive_waypoint.cpp
 )
-ament_target_dependencies(interactive_waypoint rclcpp geometry_msgs tf2 tf2_ros tf2_geometry_msgs visualization_msgs interactive_markers)
+ament_target_dependencies(interactive_waypoint rclcpp std_msgs geometry_msgs tf2 tf2_ros tf2_geometry_msgs visualization_msgs interactive_markers)
 
 install(TARGETS interactive_waypoint DESTINATION lib/${PROJECT_NAME})
 

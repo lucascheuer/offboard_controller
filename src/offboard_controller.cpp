@@ -29,6 +29,7 @@ OffboardController::OffboardController() : Node("offboard_controller")
 	// subs
 	odom_sub_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos, std::bind(&OffboardController::OdomCallback, this, _1));
 	waypoint_array_sub_ = create_subscription<geometry_msgs::msg::PoseArray>("/min_snap/path", qos, std::bind(&OffboardController::WaypointUpdateCallback, this, _1));
+	execute_sub_ = create_subscription<std_msgs::msg::Bool>("/min_snap/execute", qos, std::bind(&OffboardController::ExecuteCallback, this, _1));
 	// attitude_sub_ = this->create_subscription<VehicleAttitude>("/px4_1/fmu/out/vehicle_attitude", qos, std::bind(&OffboardController::AttitudeCallback, this, _1));
 	// april_tag_sub_ = this->create_subscription<apriltag_msgs::msg::AprilTagDetectionArray>("/apriltag/detections", qos, std::bind(&OffboardController::TagCallback, this, _1));
 	// pubs
@@ -96,12 +97,19 @@ void OffboardController::WaypointUpdateCallback(const geometry_msgs::msg::PoseAr
 		traj_.ClearWaypoints();
 		for (int waypoint = 0; waypoint < int(poses.poses.size()); ++waypoint)
 		{
-			MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(poses.poses[waypoint].position.x, poses.poses[waypoint].position.y, poses.poses[waypoint].position.z), 0);
+			// Eigen::Quaterniond eig_quat(poses.poses[waypoint].orientation.w, poses.poses[waypoint].orientation.x, poses.poses[waypoint].orientation.y, poses.poses[waypoint].orientation.z);
+			// auto euler = eig_quat.toRotationMatrix().eulerAngles(0, 1, 2);
+			MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(poses.poses[waypoint].position.x, poses.poses[waypoint].position.y, poses.poses[waypoint].position.z), 0.0);
 			traj_.AddWaypoint(new_waypoint);
 		}
 		MinSnapTraj::Waypoint last_waypoint(Eigen::Vector3d(poses.poses[0].position.x, poses.poses[0].position.y, poses.poses[0].position.z), 0);
 		traj_.AddWaypoint(last_waypoint);
 	}
+}
+
+void OffboardController::ExecuteCallback(const std_msgs::msg::Bool execute)
+{
+	set_parameter(rclcpp::Parameter("min_snap", true));
 }
 
 void OffboardController::UpdateMinSnapTrajEndPoints()

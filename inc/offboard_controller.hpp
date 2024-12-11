@@ -16,6 +16,7 @@
 #include <px4_msgs/msg/vehicle_attitude_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <apriltag_msgs/msg/april_tag_detection_array.hpp>
 #include <Eigen/Eigen>
@@ -38,6 +39,7 @@ private:
 	rclcpp::Subscription<VehicleAttitude>::SharedPtr attitude_sub_;
 
 	rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr waypoint_array_sub_;
+	rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr execute_sub_;
 
 	// things to do general control of px4
 	rclcpp::Subscription<VehicleCommandAck>::SharedPtr command_ack_sub_;
@@ -75,7 +77,7 @@ private:
 	void OdomCallback(const VehicleOdometry::SharedPtr msg);
 	void TagCallback(const apriltag_msgs::msg::AprilTagDetectionArray::SharedPtr msg);
 	void WaypointUpdateCallback(const geometry_msgs::msg::PoseArray poses);
-
+	void ExecuteCallback(const std_msgs::msg::Bool execute);
 	void UpdateMinSnapTrajEndPoints();
 
 	void TransformToTree(const geometry_msgs::msg::TransformStamped transform);
