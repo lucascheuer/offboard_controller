@@ -97,12 +97,22 @@ void OffboardController::WaypointUpdateCallback(const geometry_msgs::msg::PoseAr
 		traj_.ClearWaypoints();
 		for (int waypoint = 0; waypoint < int(poses.poses.size()); ++waypoint)
 		{
-			// Eigen::Quaterniond eig_quat(poses.poses[waypoint].orientation.w, poses.poses[waypoint].orientation.x, poses.poses[waypoint].orientation.y, poses.poses[waypoint].orientation.z);
-			// auto euler = eig_quat.toRotationMatrix().eulerAngles(0, 1, 2);
-			MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(poses.poses[waypoint].position.x, poses.poses[waypoint].position.y, poses.poses[waypoint].position.z), 0.0);
+			Eigen::Quaterniond eig_quat(poses.poses[waypoint].orientation.w, poses.poses[waypoint].orientation.x, poses.poses[waypoint].orientation.y, poses.poses[waypoint].orientation.z);
+			Eigen::AngleAxisd axis_angle(eig_quat);
+			double angle;
+			if (axis_angle.axis()[2] > 0)
+			{
+				angle = -axis_angle.angle();
+			} else
+			{
+				angle = axis_angle.angle();
+			}
+			// RCLCPP_INFO(get_logger(), "Axis: %3.2f, Angle: %3.2f", axis_angle.axis()[2], angle);
+			MinSnapTraj::Waypoint new_waypoint(Eigen::Vector3d(poses.poses[waypoint].position.x, poses.poses[waypoint].position.y, poses.poses[waypoint].position.z), angle);
 			traj_.AddWaypoint(new_waypoint);
 		}
-		MinSnapTraj::Waypoint last_waypoint(Eigen::Vector3d(poses.poses[0].position.x, poses.poses[0].position.y, poses.poses[0].position.z), 0);
+		MinSnapTraj::Waypoint last_waypoint;
+		traj_.GetWaypoint(0, last_waypoint);
 		traj_.AddWaypoint(last_waypoint);
 	}
 }
@@ -158,7 +168,7 @@ void OffboardController::PublishTrajectorySetpoint()
 		msg.position = {float(waypoint->pos[0]), float(-waypoint->pos[1]), float(-waypoint->pos[2])};
 		msg.velocity = {0.0, 0.0, 0.0};
 		msg.acceleration = {0.0, 0.0, 0.0};
-		msg.yaw = float(0.0);
+		msg.yaw = float(waypoint->yaw);
 		msg.timestamp = this->get_clock()->now().seconds() * 1000000;
 		trajectory_setpoint_pub_->publish(msg);
 	} else

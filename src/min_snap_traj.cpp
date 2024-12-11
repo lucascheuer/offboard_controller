@@ -25,7 +25,7 @@ double MinSnapTraj::EndTime()
 
 bool MinSnapTraj::GetWaypoint(int waypoint_num, Waypoint &to_fill)
 {
-	if (waypoint_num > int(waypoints_.size()) || waypoint_num < 0)
+	if (waypoint_num >= int(waypoints_.size()) || waypoint_num < 0)
 	{
 		return false;
 	}
